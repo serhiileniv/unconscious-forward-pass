@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { CLOUD_RADIUS, layerZ } from './lattice'
+import { layerZ } from './lattice'
 import { PALETTE } from './palette'
 
 const SEGMENTS = 72
@@ -19,7 +19,7 @@ export class Rings {
   private readonly colors: Float32Array
   private readonly nLayers: number
 
-  constructor(nLayers: number) {
+  constructor(nLayers: number, radius: number) {
     this.nLayers = nLayers
     const verts: number[] = []
     for (let l = 0; l < nLayers; l++) {
@@ -27,7 +27,7 @@ export class Rings {
       for (let i = 0; i < SEGMENTS; i++) {
         const a0 = (i / SEGMENTS) * Math.PI * 2
         const a1 = ((i + 1) / SEGMENTS) * Math.PI * 2
-        const r = CLOUD_RADIUS * 0.82
+        const r = radius * 1.12
         verts.push(Math.cos(a0) * r, Math.sin(a0) * r, z, Math.cos(a1) * r, Math.sin(a1) * r, z)
       }
     }

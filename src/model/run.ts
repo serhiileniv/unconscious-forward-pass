@@ -1,27 +1,29 @@
-import { buildEmbedding, type Embedding } from './embedding'
-import { dot, mulberry32 } from './math'
-import { buildVocab, encode, type Vocab } from './tokenizer'
-import {
-  buildModel,
-  DEFAULT_CONFIG,
-  forward,
-  makeProjector,
-  type Model,
-  type ModelConfig,
-  type StepTrace,
-} from './transformer'
+import { LlamaLM } from './llama'
+import type { LM, LMState, LoadProgress } from './lm'
+import { mulberry32, softmax } from './math'
+import type { Candidate, FeatureHit, LayerTrace, StepTrace } from './trace'
+
+export const MODEL_URL = '/model/qwen'
+export const MODEL_NAME = 'Qwen2.5 0.5B Instruct'
+/** How many whole-word tokens are drawn as points. */
+export const N_LENS = 6144
+export const MAX_CONTEXT = 32
+
+/** How far a layer must push a token, in standard deviations, to be drawn. */
+const Z_PUSH = 2.2
+/** How many pushes are drawn at once, per position, per layer. */
+const TOP_K = 16
 
 export interface Anticipation {
-  /** The generation step at which this feature was already awake. */
   step: number
   layer: number
   pos: number
   featureId: number
   label: string
-  /** The later step whose emitted word this feature's direction points at. */
   targetStep: number
   targetWord: string
-  sim: number
+  /** Standardised lens score at the moment it was already leaning this way. */
+  z: number
 }
 
 export interface Run {
@@ -29,173 +31,280 @@ export interface Run {
   emitted: number[]
   words: string[]
   anticipations: Anticipation[]
-  /** Total feature activations across every pass — what was considered. */
   considered: number
-  /** Words actually produced — what was said. */
   spoken: number
+  promptWords: string[]
+  promptText: string
 }
 
-export interface Session {
-  cfg: ModelConfig
-  vocab: Vocab
-  emb: Embedding
-  model: Model
-  projector: Float32Array
+export async function loadModel(onProgress?: LoadProgress): Promise<LM> {
+  return LlamaLM.load(MODEL_URL, MODEL_NAME, N_LENS, onProgress)
 }
 
-export function buildSession(cfg: ModelConfig = DEFAULT_CONFIG, seed = 20260902): Session {
-  const vocab = buildVocab()
-  const emb = buildEmbedding(vocab, cfg.dModel, seed)
-  const model = buildModel(vocab, emb, cfg, seed + 1)
-  const projector = makeProjector(cfg.dModel, seed + 2)
-  return { cfg, vocab, emb, model, projector }
-}
-
-/** Nucleus sampling over the candidate list the forward pass already ranked. */
-function sample(probs: number[], temperature: number, topP: number, rand: () => number): number {
-  const scaled = probs.map((p) => Math.pow(Math.max(p, 1e-12), 1 / Math.max(temperature, 0.05)))
+function sampleFrom(probs: Float32Array, order: number[], temperature: number, topP: number, rand: () => number): number {
+  const scaled = order.map((id) => Math.pow(Math.max(probs[id], 1e-12), 1 / Math.max(temperature, 0.05)))
   const total = scaled.reduce((a, b) => a + b, 0)
-  const norm = scaled.map((p) => p / total)
   let cum = 0
-  const cutoff: number[] = []
-  for (let i = 0; i < norm.length; i++) {
-    cutoff.push(i)
-    cum += norm[i]
+  const keep: number[] = []
+  for (let i = 0; i < order.length; i++) {
+    keep.push(i)
+    cum += scaled[i] / total
     if (cum >= topP) break
   }
-  let r = rand() * cutoff.reduce((a, i) => a + norm[i], 0)
-  for (const i of cutoff) {
-    r -= norm[i]
-    if (r <= 0) return i
+  let r = rand() * keep.reduce((a, i) => a + scaled[i] / total, 0)
+  for (const i of keep) {
+    r -= scaled[i] / total
+    if (r <= 0) return order[i]
   }
-  return cutoff[cutoff.length - 1]
+  return order[keep[keep.length - 1]]
+}
+
+/**
+ * What this layer actually did to the answer.
+ *
+ * The residual stream is a running sum and the output head is linear, so once
+ * the final norm's scale is fixed, the difference between the running totals at
+ * two consecutive layers is exactly this layer's contribution to every token's
+ * logit. Positive means it pushed the model toward saying that word; negative
+ * means it pushed it away.
+ *
+ * This is not an estimate of what the layer was "thinking". It is an exact
+ * decomposition of the model's own output, and the parts sum to the whole —
+ * verified in tools/evalmodel.ts, which checks the last layer's running total
+ * against the real logits.
+ *
+ * Contributions are standardised per layer because their scale grows steeply
+ * with depth; without that the last few layers would be the only visible ones.
+ */
+function readLayer(model: LM, state: LMState, layer: number, T: number): {
+  features: FeatureHit[][]
+  suppressed: FeatureHit[][]
+  contended: Int32Array
+  activations: number
+} {
+  const nLens = model.lensIds.length
+  const features: FeatureHit[][] = []
+  const suppressed: FeatureHit[][] = []
+  const contended = new Int32Array(T)
+  let activations = 0
+
+  const now = state.lens[layer]
+  const prev = layer > 0 ? state.lens[layer - 1] : null
+  const delta = new Float32Array(nLens)
+
+  for (let pos = 0; pos < T; pos++) {
+    const base = pos * nLens
+    let mean = 0
+    for (let i = 0; i < nLens; i++) {
+      delta[i] = now[base + i] - (prev ? prev[base + i] : 0)
+      mean += delta[i]
+    }
+    mean /= nLens
+    let sd = 0
+    for (let i = 0; i < nLens; i++) sd += (delta[i] - mean) ** 2
+    sd = Math.sqrt(sd / nLens) || 1
+
+    const up: FeatureHit[] = []
+    const down: FeatureHit[] = []
+    for (let i = 0; i < nLens; i++) {
+      const z = (delta[i] - mean) / sd
+      if (z > Z_PUSH) up.push({ id: i, act: z, delta: delta[i] })
+      else if (z < -Z_PUSH) down.push({ id: i, act: -z, delta: delta[i] })
+    }
+    contended[pos] = up.length + down.length
+    up.sort((a, b) => b.act - a.act)
+    down.sort((a, b) => b.act - a.act)
+    const kept = up.slice(0, TOP_K)
+    activations += kept.length + Math.min(down.length, TOP_K)
+    features.push(kept)
+    suppressed.push(down.slice(0, TOP_K))
+  }
+  return { features, suppressed, contended, activations }
+}
+
+/**
+ * How much of the final answer is in place by this depth.
+ *
+ * Compares the running total at this layer against the model's real output over
+ * exactly the tokens that get drawn. Because the totals are an exact
+ * decomposition, this reaches a perfect match at the last layer by construction
+ * — which is the check that the arithmetic is right, not a claim about meaning.
+ */
+function measureAgreement(
+  model: LM,
+  state: LMState,
+  layer: number,
+  pos: number,
+  realOverLens: Float32Array,
+  realTop: Set<number>,
+): { agreement: number; kl: number } {
+  const nLens = model.lensIds.length
+  const base = pos * nLens
+  const p = new Float32Array(nLens)
+  p.set(state.lens[layer].subarray(base, base + nLens))
+  softmax(p)
+
+  let kl = 0
+  for (let i = 0; i < nLens; i++) {
+    if (p[i] > 1e-12 && realOverLens[i] > 1e-12) kl += p[i] * Math.log(p[i] / realOverLens[i])
+  }
+  const top = Array.from(p.keys()).sort((a, b) => p[b] - p[a]).slice(0, 10)
+  let hit = 0
+  for (const i of top) if (realTop.has(i)) hit++
+  return { agreement: hit / 10, kl }
+}
+
+function buildTrace(model: LM, state: LMState, logits: Float32Array, active: number): StepTrace {
+  const { nLayer, nHead } = model.cfg
+  const T = state.length
+  const layers: LayerTrace[] = []
+  let activations = 0
+
+  // The model's real distribution, restricted to the tokens actually drawn.
+  const nLens = model.lensIds.length
+  const realOverLens = new Float32Array(nLens)
+  for (let i = 0; i < nLens; i++) realOverLens[i] = logits[model.lensIds[i]]
+  softmax(realOverLens)
+  const realTop = new Set(
+    Array.from(realOverLens.keys()).sort((a, b) => realOverLens[b] - realOverLens[a]).slice(0, 10),
+  )
+
+  for (let l = 0; l < nLayer; l++) {
+    const { features, suppressed, contended, activations: n } = readLayer(model, state, l, T)
+    activations += n
+    // Repack the cached attention into a dense T x T per head for the renderer.
+    const attn = new Float32Array(nHead * T * T)
+    for (let h = 0; h < nHead; h++) {
+      for (let i = 0; i < T; i++) {
+        const src = h * state.maxT * state.maxT + i * state.maxT
+        attn.set(state.attn[l].subarray(src, src + T), h * T * T + i * T)
+      }
+    }
+    const { agreement, kl } = measureAgreement(model, state, l, active, realOverLens, realTop)
+    layers.push({
+      layer: l,
+      agreement,
+      kl,
+      attn,
+      features,
+      suppressed,
+      contended,
+      residualNorm: new Float32Array(state.residualNorm[l].subarray(0, T)),
+      writeNorm: new Float32Array(state.writeNorm[l].subarray(0, T)),
+      proj: new Float32Array(state.proj[l].subarray(0, T * 3)),
+    })
+  }
+
+  const probs = new Float32Array(logits.length)
+  probs.set(logits)
+  softmax(probs)
+  let entropy = 0
+  for (let v = 0; v < probs.length; v++) if (probs[v] > 0) entropy -= probs[v] * Math.log2(probs[v])
+
+  const order = Array.from({ length: probs.length }, (_, i) => i).sort((a, b) => probs[b] - probs[a]).slice(0, 40)
+  const candidates: Candidate[] = order.map((id) => ({ id, word: model.tok.piece(id), prob: probs[id] }))
+
+  return { ids: state.ids.slice(), active, layers, candidates, chosen: order[0], entropy, activations }
 }
 
 export function generate(
-  session: Session,
+  model: LM,
   prompt: string,
   nSteps: number,
   opts: { temperature?: number; topP?: number; seed?: number } = {},
 ): Run {
-  const { model, vocab, projector, cfg } = session
   const rand = mulberry32(opts.seed ?? 7)
-  const temperature = opts.temperature ?? 0.85
+  const temperature = opts.temperature ?? 0.8
   const topP = opts.topP ?? 0.9
 
-  let ids = encode(vocab, prompt).filter((id) => id !== 0)
-  if (ids.length === 0) ids = encode(vocab, 'most of what a mind does is never said')
-  ids = ids.slice(-Math.max(1, cfg.maxT - nSteps))
+  const text = prompt.trim() || 'The Eiffel Tower is located in the city of'
+  let ids = model.tok.encode(text)
+  if (ids.length === 0) ids = model.tok.encode('The Eiffel Tower is located in the city of')
+  ids = ids.slice(-(MAX_CONTEXT - nSteps - 1))
+
+  const state = model.newState(MAX_CONTEXT)
+  let logits = state.push(ids[0])
+  for (let i = 1; i < ids.length; i++) logits = state.push(ids[i])
 
   const steps: StepTrace[] = []
   const emitted: number[] = []
   let considered = 0
 
   for (let s = 0; s < nSteps; s++) {
-    const trace = forward(model, ids, projector)
-    const pick = sample(
-      trace.candidates.map((c) => c.prob),
-      temperature,
-      topP,
-      rand,
-    )
-    trace.chosen = trace.candidates[pick].id
+    const probs = new Float32Array(logits.length)
+    probs.set(logits)
+    softmax(probs)
+    const order = Array.from({ length: probs.length }, (_, i) => i)
+      .sort((a, b) => probs[b] - probs[a])
+      .slice(0, 40)
+    const chosen = sampleFrom(probs, order, temperature, topP, rand)
+
+    const trace = buildTrace(model, state, logits, state.length - 1)
+    trace.chosen = chosen
     steps.push(trace)
     considered += trace.activations
-    emitted.push(trace.chosen)
-    ids = [...ids, trace.chosen]
-    if (ids.length > cfg.maxT) ids = ids.slice(-cfg.maxT)
+    emitted.push(chosen)
+
+    if (state.length >= MAX_CONTEXT) break
+    logits = state.push(chosen)
   }
 
   return {
     steps,
     emitted,
-    words: emitted.map((id) => vocab.words[id]),
-    anticipations: findAnticipations(session, steps, emitted),
+    words: emitted.map((id) => model.tok.piece(id)),
+    anticipations: findAnticipations(model, steps, emitted),
     considered,
     spoken: emitted.length,
+    promptWords: ids.map((id) => model.tok.piece(id)),
+    promptText: text,
   }
 }
 
 /**
  * Anticipation, measured rather than asserted.
  *
- * Real models plan: a feature can be active long before the word it relates to is
- * written. Nothing here fabricates that. The whole continuation is generated
- * first, and only then does this pass look backward and ask, for each feature that
- * was awake at step s, whether its direction points at a word the model went on to
- * emit at some later step. The links drawn in the scene are that measurement.
- *
- * It is a retrodiction, not a claim about intent, and the UI labels it as one.
+ * Because every point in the scene is a real token, this needs no similarity
+ * metric and no interpretation: the question is simply whether the token the
+ * model wrote at step t was already among the tokens it was leaning toward at
+ * step s, several words earlier. The continuation is generated first and this
+ * pass looks backward, so it is a retrodiction — it says the lean was there, not
+ * that the model intended anything.
  */
-const FUNCTION_WORDS = new Set(
-  ('a an the and or but of to in on at by for with from as is are was were be been it its this that '
-    + 'these those there here not no only own so then than up out over into which what who whom whose '
-    + 'have has had do does did can could will would shall should may might must if when while all any '
-    + 'each every both few more most other some such one two i you he she we they them their our your'
-  ).split(' '),
-)
+function findAnticipations(model: LM, steps: StepTrace[], emitted: number[]): Anticipation[] {
+  const MIN_LEAD = 2
+  const byId = new Map<number, number>()
+  model.lensIds.forEach((tokenId, i) => byId.set(tokenId, i))
 
-function findAnticipations(session: Session, steps: StepTrace[], emitted: number[]): Anticipation[] {
-  const { model, cfg, emb, vocab } = session
-  const d = cfg.dModel
-  const MIN_SIM = 0.4
-  const MIN_LEAD = 3
-
-  // Only content words are worth pointing at. A feature "anticipating" the word
-  // "a" is arithmetic, not foresight, and showing it would be a lie by omission.
-  const targets = emitted.map((id, t) => {
-    if (FUNCTION_WORDS.has(vocab.words[id])) return null
-    // Don't count a word the model has already emitted as something it foresaw.
-    if (emitted.slice(0, t).includes(id)) return null
-    const v = new Float32Array(d)
-    let n = 0
-    for (let i = 0; i < d; i++) {
-      v[i] = emb.matrix[id * d + i]
-      n += v[i] * v[i]
-    }
-    n = Math.sqrt(n) || 1e-8
-    for (let i = 0; i < d; i++) v[i] /= n
-    return v
-  })
-
-  // Best link per (step, future word). Keyed by both, not just the target, because
-  // these features re-fire on pass after pass — the thread genuinely persists until
-  // the word is finally written, and holding it on screen for only its first step
-  // would hide the phenomenon rather than show it.
   const best = new Map<string, Anticipation>()
   for (let s = 0; s < steps.length; s++) {
-    const seen = new Set<number>()
-    for (const layer of steps[s].layers) {
-      for (let pos = 0; pos < layer.features.length; pos++) {
-        for (const hit of layer.features[pos]) {
-          if (seen.has(hit.id)) continue
-          seen.add(hit.id)
-          for (let t = s + MIN_LEAD; t < steps.length; t++) {
-            const tgt = targets[t]
-            if (!tgt) continue
-            const sim = dot(model.dict, hit.id * d, tgt, 0, d)
-            if (sim < MIN_SIM) continue
-            const key = `${s}:${t}`
-            const prev = best.get(key)
-            if (!prev || sim > prev.sim) {
-              best.set(key, {
-                step: s,
-                layer: layer.layer,
-                pos,
-                featureId: hit.id,
-                label: model.dictLabels[hit.id],
-                targetStep: t,
-                targetWord: vocab.words[emitted[t]],
-                sim,
-              })
-            }
-          }
+    const step = steps[s]
+    for (let t = s + MIN_LEAD; t < steps.length; t++) {
+      const featureId = byId.get(emitted[t])
+      if (featureId === undefined) continue
+      for (const layer of step.layers) {
+        const hits = layer.features[step.active]
+        if (!hits) continue
+        const hit = hits.find((f) => f.id === featureId)
+        if (!hit) continue
+        const key = `${s}:${t}`
+        const prev = best.get(key)
+        if (!prev || hit.act > prev.z) {
+          best.set(key, {
+            step: s,
+            layer: layer.layer,
+            pos: step.active,
+            featureId,
+            label: model.lensPieces[featureId],
+            targetStep: t,
+            targetWord: model.tok.piece(emitted[t]),
+            z: hit.act,
+          })
         }
       }
     }
   }
 
-  // Cap per step so a single loud direction cannot fill the scene.
   const byStep = new Map<number, Anticipation[]>()
   for (const a of best.values()) {
     const list = byStep.get(a.step) ?? []
@@ -204,7 +313,7 @@ function findAnticipations(session: Session, steps: StepTrace[], emitted: number
   }
   const out: Anticipation[] = []
   for (const list of byStep.values()) {
-    list.sort((a, b) => b.sim - a.sim)
+    list.sort((a, b) => b.z - a.z)
     out.push(...list.slice(0, 3))
   }
   return out.sort((a, b) => a.step - b.step || a.targetStep - b.targetStep)

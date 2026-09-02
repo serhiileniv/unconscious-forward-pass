@@ -1,61 +1,72 @@
 # The Unconscious of a Forward Pass
 
-A 3D simulation of the sub-verbal computation inside a transformer: thousands of
-features considered, one word spoken.
+A 3D visualisation of what happens inside a language model between reading a
+prompt and saying one word.
 
-A real 12-layer transformer runs in the browser. Attention, superposition,
-sparsity and suppression are genuinely computed — the geometry on screen is read
-straight out of the tensors, not animated to look like it.
+Qwen2.5 0.5B Instruct — the real published weights — runs its real forward pass
+in your browser. Nothing is simulated and nothing is estimated: what lights up is
+an exact decomposition of the model's own output.
 
 ## What you are looking at
 
 | Element | What it is |
 | --- | --- |
-| **Point cloud** | Every direction in a 2048-entry feature dictionary, drawn once per layer. A point's position is its actual direction in the 96-dimensional residual space, put through a fixed 3D projection — so two points are close exactly when the two directions are close. |
-| **Rings** | The twelve layer planes. Depth is time here, not space: the wavefront sweeping through them is one forward pass happening. |
-| **Filaments** | The residual stream, one per token, running the full depth. Every layer reads it, adds something, and puts it back; nothing is ever removed, only buried. A filament bends where a layer wrote something large into it. |
-| **Arcs** | Attention at the layer currently being crossed. They are drawn as events rather than objects because that is what they are — a head reaches back, moves information, and is gone before the next layer starts. |
-| **Bone → amber** | A feature awake, warmer as it gets stronger. |
-| **Violet** | A feature that was awake and got overruled by a later layer. It never reaches the readout and leaves no mark on the page. |
-| **Long amber threads** | A feature awake *now* whose direction points at a word the run went on to emit several steps later, labelled with its lead. |
+| **Point cloud** | One point per whole-word token, drawn once per layer, placed at that token's real row of the model's output head. Two points sit close together exactly when the model puts those two words close together. |
+| **Rings** | The 24 layer planes. Depth is time: the wavefront crossing them is one forward pass. |
+| **Filaments** | The residual stream, one per token. Every layer reads it, adds something, and puts it back; nothing is erased, only buried. |
+| **Arcs** | Attention at the layer being crossed — one position reaching back at earlier ones. Drawn as events, because that is what they are. |
+| **Bone → amber** | A word this layer pushed the model *toward*. |
+| **Violet** | A word this layer pushed the model *away* from. |
+| **Long amber threads** | A word the model went on to write several steps later, already being pushed for now. |
 
-The headline number is the ratio: how many feature activations were weighed per
-word that actually got out. It runs in the low thousands to one.
+## What makes it exact
 
-## Honesty about the toy
+The residual stream is a running sum — the embedding plus every layer's write —
+and the output head is linear. So once the final norm's scale is fixed, each
+layer's contribution to every word's score is exactly computable, and the
+contributions sum to the model's real logits.
 
-Three things are worth stating plainly, because a convincing picture of a model's
-interior is easy to fake:
+That is checkable, and it is checked:
 
-1. **The network is untrained.** Its weights are random. The mechanism is real —
-   real QKV attention with causal masking and softmax, real layer norm, real GELU
-   feed-forward, real residual accumulation — but an untrained transformer has no
-   opinion about English, so word choice is anchored by bigram statistics from the
-   corpus. Everything geometric is computed; the sentences are the toy showing
-   through.
+```
+$ node tools/evalmodel.mjs public/model/qwen
+attribution vs real logits at final layer: max abs error 0.00e+0
+```
 
-2. **The feature dictionary is constructed, not learned.** A real sparse
-   autoencoder learns its dictionary. This one is built: the first rows are the
-   vocabulary directions themselves and the rest are compositions of two or three
-   of them, which is why every feature in the scene has a name you can read. That
-   reproduces the property that matters — far more directions than dimensions, so
-   they cannot all be orthogonal and they interfere — without claiming the
-   features are monosemantic.
+**Why not the logit lens.** The better-known technique re-applies the final norm
+at each depth. Measured on this model it disagrees with the real output at every
+layer before 20 of 24 — KL 8–13, zero overlap in the top ten, with top tokens
+like `" rain"`, `" sequ"`, `" swe"`. On GPT-2 it behaves far better, which is why
+most published examples use GPT-2. `tools/faithful.mjs` runs that comparison, and
+`src/model/gpt2.ts` is kept as the reference implementation for it.
 
-3. **The embedding is real.** It is not random. Word co-occurrences are counted
-   over the corpus, reweighted as positive pointwise mutual information, and
-   reduced to 96 dimensions by subspace iteration. That is what makes the cloud's
-   shape mean something: `attention` lands near `reaching` and `backward`,
-   `silence` near `sit` and `dark`. Check it yourself in `tools/smoke.ts`.
+## A worked example
 
-This is the architecture of thinking. It is not a scan of any deployed model, and
-no such scan is possible from the outside.
+`The Eiffel Tower is located in the city of` → ` Paris` (54.4%)
+
+Contribution to `" Paris"`, by layer:
+
+```
+L17 +1.78   L18 +1.33   L19 +0.65   L20 +5.73   L21 +10.90   L22 -3.86
+```
+
+Layer 21 fires `" French" +12.9`, `" France" +11.6`, `" Paris" +10.9`,
+`" Louis" +7.8` together — the France concept arriving at once. Then layer 22
+pushes ` Paris` back down while promoting `" in"`, `" and"`, `" the"`. Those
+numbers are not an interpretation; they add up to what the model said.
+
+## What it does not show
+
+Why a layer pushed as it did, and any internal state the output head cannot see.
+These are not "the words in the model's mind". They are the exact amount each
+layer moved every word's score.
 
 ## Running it
 
 ```sh
 npm install
-npm run dev          # http://localhost:5173
+npm run fetch-weights   # 942 MB from HuggingFace, gitignored
+npm run dev             # http://localhost:5173
 npm run build        # dist/
 npm run check        # tsc --noEmit
 SINGLEFILE=1 npx vite build   # dist-single/ — one self-contained .html
@@ -67,24 +78,30 @@ the screenshots in development were taken.
 ## Layout
 
 ```
-src/model/     corpus, tokenizer, PPMI embedding, transformer, generation
-src/scene/     three.js — feature lattice, layer rings, residual streams,
-               attention arcs, projected DOM labels, camera
-src/main.ts    playback timeline, readouts, controls
+src/model/safetensors.ts  weight loading, f32/f16/bf16
+src/model/bpe.ts          byte-level BPE, GPT-2 and Llama-era splits
+src/model/llama.ts        RMSNorm, RoPE, grouped-query attention, SwiGLU
+src/model/gpt2.ts         GPT-2, kept for the lens-vs-attribution comparison
+src/model/run.ts          decoding, attribution, anticipation
+src/scene/                three.js — token cloud, layer rings, residual
+                          streams, attention arcs, projected DOM labels
+src/main.ts               playback timeline, readouts, controls
 ```
 
-Defaults live in `DEFAULT_CONFIG` (`src/model/transformer.ts`): 12 layers, 96
-dimensions, 6 heads, 2048 features, top-16 sparsity, 24-token context.
+Both model families implement `LM` in `src/model/lm.ts`, so swapping checkpoints
+is a URL change. `MODEL_URL` in `src/model/run.ts` selects one.
 
 ### Dev tools
 
 ```sh
-npx esbuild tools/smoke.ts --bundle --platform=node --format=esm --outfile=/tmp/s.mjs && node /tmp/s.mjs
-node tools/shot.mjs http://localhost:4173/ shot.png 7000 'window.__uc.at(3, 0.45)'
+npx esbuild tools/evalmodel.ts --bundle --platform=node --format=esm --outfile=tools/evalmodel.mjs
+node --max-old-space-size=8192 tools/evalmodel.mjs public/model/qwen
+node tools/shot.mjs http://localhost:5173/ shot.png 70000 'window.__uc.at(0, 0.6)'
 ```
 
-`tools/smoke.ts` prints nearest neighbours out of the embedding and checks that
-attention rows sum to one. `tools/shot.mjs` drives headless Chrome over the
+`tools/evalmodel.ts` checks the attribution against the real logits and prints
+per-layer behaviour. `tools/attrib.ts` breaks one token's score down by layer.
+`tools/faithful.ts` runs the logit-lens comparison. `tools/shot.mjs` drives headless Chrome over the
 DevTools protocol — Chrome's `--virtual-time-budget` never fires on a page with a
 permanent animation loop, which this is.
 

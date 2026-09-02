@@ -106,9 +106,9 @@ for (let i = 0; i < TOTAL; i++) {
   // Side-on rather than down the barrel: the corridor spans the frame and the
   // lit slab travels across it, instead of sitting in one corner while
   // three-quarters of the shot stays empty. Slow rise, slow push in.
-  const azimuth = 0.78 + 0.40 * u
+  const azimuth = 0.80 + 0.36 * u
   const elevation = 0.17 + 0.14 * (0.5 - 0.5 * Math.cos(u * Math.PI * 2))
-  const distance = 44 - 8 * u
+  const distance = 59 - 7 * u
   await evaluate(`window.__uc.capture(${ms}, ${azimuth}, ${elevation}, ${distance})`)
   const shot = await send('Page.captureScreenshot', { format: 'png' })
   writeFileSync(join(outDir, `f${String(i).padStart(4, '0')}.png`), Buffer.from(shot.data, 'base64'))

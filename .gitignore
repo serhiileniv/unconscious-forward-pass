@@ -4,3 +4,6 @@ dist-single/
 artifact/
 *.log
 .DS_Store
+public/model/
+frames/
+*.mp4

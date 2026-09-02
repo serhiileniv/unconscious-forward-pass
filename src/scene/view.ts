@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { Run, Session } from '../model/run'
+import type { LM } from '../model/lm'
+import { MAX_CONTEXT, type Run } from '../model/run'
 import { Arcs } from './arcs'
 import { Labels, type LabelSpec } from './labels'
 import { Lattice, layerZ } from './lattice'
@@ -26,38 +27,40 @@ export class View {
   private readonly rings: Rings
   private readonly labels: Labels
   private readonly plans: THREE.LineSegments
-  private readonly session: Session
+  private readonly model: LM
   private run: Run | null = null
   private currentStep = -1
   private width = 1
   private height = 1
 
-  constructor(canvas: HTMLCanvasElement, labelHost: HTMLElement, session: Session) {
-    this.session = session
+  constructor(canvas: HTMLCanvasElement, labelHost: HTMLElement, model: LM) {
+    this.model = model
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' })
     this.renderer.setClearColor(PALETTE.bg, 1)
 
     this.scene = new THREE.Scene()
     // Depth cueing. Layers far from the camera dim out, which is what makes the
     // stack read as depth rather than as a flat spray of points.
-    this.scene.fog = new THREE.FogExp2(PALETTE.bg, 0.0145)
+    this.scene.fog = new THREE.FogExp2(PALETTE.bg, 0.0105)
 
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 400)
-    this.camera.position.set(19, 8, 43)
+    // Side-on rather than down the barrel: the stack spans the frame and the
+    // sweeping wavefront travels across it instead of coming straight at you.
+    this.camera.position.set(43.4, 12.8, 31.0)
 
     this.controls = new OrbitControls(this.camera, canvas)
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.06
     this.controls.minDistance = 10
-    this.controls.maxDistance = 130
+    this.controls.maxDistance = 180
     this.controls.autoRotate = true
     this.controls.autoRotateSpeed = 0.22
     this.controls.target.set(0, 0, -1)
 
-    this.lattice = new Lattice(session)
-    this.streams = new Streams(session.cfg.maxT, session.cfg.nLayers)
+    this.lattice = new Lattice(model)
+    this.streams = new Streams(MAX_CONTEXT, model.cfg.nLayer)
     this.arcs = new Arcs()
-    this.rings = new Rings(session.cfg.nLayers)
+    this.rings = new Rings(model.cfg.nLayer, this.lattice.radius)
     this.labels = new Labels(labelHost)
 
     this.plans = new THREE.LineSegments(
@@ -116,7 +119,7 @@ export class View {
     if (!this.run) return
     const trace = this.run.steps[state.step]
     if (!trace) return
-    const nLayers = this.session.cfg.nLayers
+    const nLayers = this.model.cfg.nLayer
 
     if (state.step !== this.currentStep) {
       this.currentStep = state.step
@@ -143,7 +146,7 @@ export class View {
   /** Long amber threads: a feature awake now whose direction points at a word the run went on to emit. */
   private buildPlans(step: number): void {
     if (!this.run) return
-    const nLayers = this.session.cfg.nLayers
+    const nLayers = this.model.cfg.nLayer
     const links = this.run.anticipations.filter((a) => a.step === step)
     const pos: number[] = []
     const v = new THREE.Vector3()
@@ -163,14 +166,14 @@ export class View {
   private collectLabels(state: RenderState): LabelSpec[] {
     if (!this.run) return []
     const trace = this.run.steps[state.step]
-    const nLayers = this.session.cfg.nLayers
+    const nLayers = this.model.cfg.nLayer
     const l = Math.round(state.layerF)
     const out: LabelSpec[] = []
     const v = new THREE.Vector3()
 
     if (l >= 0 && l < nLayers) {
       const layer = trace.layers[l]
-      const pos = trace.ids.length - 1
+      const pos = trace.active
       const hits = layer.features[pos] ?? []
       // Labels must not strobe with the wavefront; hold a legible floor.
       const phase = 0.42 + 0.58 * (1 - Math.min(1, Math.abs(state.layerF - l) * 0.9))
@@ -179,7 +182,7 @@ export class View {
         this.featurePoint(hit.id, l, v)
         out.push({
           id: `f${hit.id}`,
-          text: this.session.model.dictLabels[hit.id],
+          text: this.model.lensPieces[hit.id].trim(),
           world: v.clone(),
           kind: 'feature',
           opacity: Math.max(0, phase) * (1 - i * 0.18),
@@ -191,7 +194,7 @@ export class View {
         this.featurePoint(hit.id, l, v)
         out.push({
           id: `s${hit.id}`,
-          text: this.session.model.dictLabels[hit.id],
+          text: this.model.lensPieces[hit.id].trim(),
           sub: 'suppressed',
           world: v.clone(),
           kind: 'suppressed',
@@ -219,7 +222,7 @@ export class View {
 
   private featurePoint(feature: number, layer: number, out: THREE.Vector3): void {
     const attr = this.lattice.points.geometry.getAttribute('position') as THREE.BufferAttribute
-    const idx = layer * this.session.cfg.nFeatures + feature
+    const idx = layer * this.model.lensIds.length + feature
     out.set(attr.getX(idx), attr.getY(idx), attr.getZ(idx))
   }
 

@@ -1,12 +1,19 @@
 import './style.css'
-import { buildSession, generate, type Run, type Session } from './model/run'
-import { splitWords } from './model/tokenizer'
+import type { LM } from './model/lm'
+import { generate, loadModel, MAX_CONTEXT, type Run } from './model/run'
 import { View, type RenderState } from './scene/view'
 
 /** Milliseconds for one full sweep through the stack, at 1×. */
 const STEP_MS = 2600
 /** Fraction of a step spent sweeping; the remainder holds on the readout. */
 const SWEEP = 0.8
+
+const PRESETS = [
+  'The Eiffel Tower is located in the city of',
+  'When Mary and John went to the store, John gave a drink to',
+  'The first president of the United States was named',
+  '2 + 2 =',
+]
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id)
@@ -16,11 +23,16 @@ const $ = <T extends HTMLElement>(id: string): T => {
 
 const els = {
   boot: $('boot'),
+  bootPhase: $('boot-phase'),
+  bootFill: $('boot-fill'),
+  bootDetail: $('boot-detail'),
   canvas: $<HTMLCanvasElement>('stage'),
   labels: $('labels'),
   panel: $('panel'),
   panelToggle: $<HTMLButtonElement>('panel-toggle'),
   prompt: $<HTMLTextAreaElement>('prompt'),
+  tokens: $('tokens'),
+  presets: $('presets'),
   steps: $<HTMLInputElement>('steps'),
   stepsOut: $<HTMLOutputElement>('steps-out'),
   temp: $<HTMLInputElement>('temp'),
@@ -40,14 +52,15 @@ const els = {
   awake: $('r-awake'),
   contending: $('r-contending'),
   entropy: $('r-entropy'),
+  agree: $('r-agree'),
+  lensNote: $('lens-note'),
   utterPrompt: $('utterance-prompt'),
   utterOut: $('utterance-out'),
 }
 
-let session: Session
+let model: LM
 let view: View
 let run: Run
-let promptWords: string[] = []
 
 let playing = true
 let speed = 1
@@ -67,32 +80,39 @@ let headFilter = -1
 
 // ---------------------------------------------------------------------------
 
-function boot(): void {
+async function boot(): Promise<void> {
   try {
-    session = buildSession()
+    model = await loadModel((phase, frac) => {
+      els.bootPhase.textContent = phase === 'weights' ? 'downloading Qwen2.5' : phase
+      els.bootFill.style.width = `${Math.round(frac * 100)}%`
+      if (phase === 'weights') {
+        els.bootDetail.textContent = `${(frac * 942).toFixed(0)} of 942 MB — cached after the first visit`
+      }
+    })
   } catch (err) {
-    fail(err)
+    fail(err, 'Could not load the weights. Run `npm run fetch-weights` first.')
     return
   }
 
   try {
-    view = new View(els.canvas, els.labels, session)
+    view = new View(els.canvas, els.labels, model)
   } catch (err) {
-    fail(err, 'This needs WebGL. Try a different browser or enable hardware acceleration.')
+    fail(err, 'This needs WebGL. Try another browser, or enable hardware acceleration.')
     return
   }
 
-  for (let h = 0; h < session.cfg.nHeads; h++) {
+  for (let h = 0; h < model.cfg.nHead; h++) {
     const opt = document.createElement('option')
     opt.value = String(h)
     opt.textContent = `head ${h}`
     els.head.appendChild(opt)
   }
   els.buildNote.textContent =
-    `${session.cfg.nLayers} layers · ${session.cfg.dModel} dims · ${session.cfg.nFeatures} features · ` +
-    `${session.vocab.size} words`
+    `${model.cfg.name} · ${model.cfg.nLayer} layers · ${model.cfg.nEmbd} dims · ` +
+    `${model.cfg.nHead} heads · ${model.lensIds.length.toLocaleString()} tokens drawn`
 
   wire()
+  buildPresets()
   regenerate()
   resize()
   els.boot.classList.add('gone')
@@ -101,28 +121,56 @@ function boot(): void {
 
 function fail(err: unknown, hint = ''): void {
   console.error(err)
-  els.boot.innerHTML = `<span style="max-width:40ch;text-align:center;line-height:1.7">Could not start.<br>${
+  els.boot.innerHTML = `<span style="max-width:44ch;text-align:center;line-height:1.7">${
     hint || String(err instanceof Error ? err.message : err)
   }</span>`
 }
 
 function regenerate(): void {
-  const prompt = els.prompt.value.trim() || 'most of what a mind does is never'
   const nSteps = Number(els.steps.value)
-  const temperature = Number(els.temp.value)
-
-  run = generate(session, prompt, nSteps, { temperature, seed: hash(prompt) })
+  run = generate(model, els.prompt.value, nSteps, {
+    temperature: Number(els.temp.value),
+    seed: hash(els.prompt.value),
+  })
   view.setRun(run)
-
-  // Only the words the model actually saw belong in the prompt line.
-  const known = splitWords(prompt).filter((w) => session.vocab.index.has(w))
-  promptWords = known.slice(-Math.max(1, session.cfg.maxT - nSteps))
-  els.utterPrompt.textContent = promptWords.join(' ') + ' '
+  renderTokens()
+  els.utterPrompt.textContent = run.promptWords.join('')
   els.utterOut.textContent = ''
   renderedWords = -1
   position = 0
   playing = true
   setPlayLabel()
+}
+
+/**
+ * Show how GPT-2 actually splits the prompt.
+ *
+ * Byte-level BPE takes any input, so nothing is ever silently dropped — but what
+ * comes out is often not words. "2 + 2 =" is four tokens, and "Eiffel" is three.
+ * Seeing that is half of understanding why the model behaves as it does.
+ */
+function renderTokens(): void {
+  els.tokens.innerHTML = ''
+  for (const piece of run.promptWords) {
+    const span = document.createElement('span')
+    span.className = 'tok'
+    span.textContent = piece.replace(/ /g, '·')
+    els.tokens.appendChild(span)
+  }
+}
+
+function buildPresets(): void {
+  for (const text of PRESETS) {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.textContent = text.length > 34 ? `${text.slice(0, 32)}…` : text
+    b.title = text
+    b.addEventListener('click', () => {
+      els.prompt.value = text
+      els.run.click()
+    })
+    els.presets.appendChild(b)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -134,30 +182,30 @@ function frame(now: number): void {
 
   if (playing) {
     position += dt * speed
-    if (position >= total) position = total - 1 // hold on the final word
+    if (position >= total) position = total - 1
   }
 
   const step = Math.min(run.steps.length - 1, Math.floor(position / STEP_MS))
   const t = (position % STEP_MS) / STEP_MS
   const sweepT = Math.min(1, t / SWEEP)
-  const nLayers = session.cfg.nLayers
+  const nLayers = model.cfg.nLayer
   const layerF = -0.6 + sweepT * (nLayers - 1 + 0.6)
 
   view.render({ step, layerF, headFilter, show })
   updateHud(step, t, sweepT, layerF)
+
+  els.scrub.value = String(Math.round((position / total) * 1000))
 
   if (frameWaiters.length) {
     const waiting = frameWaiters
     frameWaiters = []
     for (const resolve of waiting) resolve()
   }
-
-  els.scrub.value = String(Math.round((position / total) * 1000))
   requestAnimationFrame(frame)
 }
 
 function updateHud(step: number, t: number, sweepT: number, layerF: number): void {
-  const nLayers = session.cfg.nLayers
+  const nLayers = model.cfg.nLayer
   const trace = run.steps[step]
 
   let considered = 0
@@ -167,7 +215,6 @@ function updateHud(step: number, t: number, sweepT: number, layerF: number): voi
   const done = step + (t >= SWEEP ? 1 : 0)
   els.considered.textContent = considered.toLocaleString()
   els.spoken.textContent = String(done)
-  // The whole thesis in one number: how much was weighed per word that got out.
   els.ratio.textContent = done > 0 ? `${Math.round(considered / done).toLocaleString()} : 1` : '—'
 
   const l = Math.round(layerF)
@@ -180,16 +227,18 @@ function updateHud(step: number, t: number, sweepT: number, layerF: number): voi
     for (const hits of layer.features) awake += hits.length
     let contending = 0
     for (const n of layer.contended) contending += n
-    const pct = (awake / (session.cfg.nFeatures * trace.ids.length)) * 100
-    els.awake.textContent = `${awake} · ${pct.toFixed(2)}%`
+    els.awake.textContent = String(awake)
     els.contending.textContent = contending.toLocaleString()
+    setAgreement(layer.agreement)
   } else {
     els.awake.textContent = '—'
     els.contending.textContent = '—'
+    els.agree.textContent = '—'
+    els.lensNote.textContent = ''
+    els.lensNote.className = ''
   }
   els.entropy.textContent = `${trace.entropy.toFixed(2)} bits`
 
-  // The candidate fan resolves at the end of the sweep.
   const showFan = t > 0.6
   els.fan.hidden = !showFan
   if (showFan) renderFan(step, t >= SWEEP)
@@ -197,6 +246,28 @@ function updateHud(step: number, t: number, sweepT: number, layerF: number): voi
   if (done !== renderedWords) {
     renderedWords = done
     renderUtterance(done)
+  }
+}
+
+/**
+ * Say, at every depth, how much of the final answer is actually assembled. Early
+ * layers push hard on words that never survive, so without this the picture
+ * implies far more resolution than the model has at that point.
+ */
+function setAgreement(agreement: number): void {
+  els.agree.textContent = `${Math.round(agreement * 10)} / 10`
+  if (agreement >= 0.9) {
+    els.lensNote.textContent = 'the running total is now the model\u2019s actual output'
+    els.lensNote.className = 'good'
+  } else if (agreement >= 0.5) {
+    els.lensNote.textContent = 'most of the answer is in place'
+    els.lensNote.className = 'good'
+  } else if (agreement >= 0.2) {
+    els.lensNote.textContent = 'the answer is starting to form'
+    els.lensNote.className = ''
+  } else {
+    els.lensNote.textContent = 'nothing of the final answer is in place yet'
+    els.lensNote.className = 'warn'
   }
 }
 
@@ -212,8 +283,9 @@ function renderFan(step: number, resolved: boolean): void {
     .map((c) => {
       const chosen = resolved && c.id === trace.chosen
       const w = Math.max(2, (c.prob / max) * 100)
+      const label = c.word.replace(/ /g, '·').replace(/\n/g, '\\n')
       return `<li class="${chosen ? 'chosen' : ''}"><i class="bar" style="width:${w}%"></i>` +
-        `<span>${escapeHtml(c.word)}</span><span class="p">${(c.prob * 100).toFixed(1)}%</span></li>`
+        `<span>${escapeHtml(label)}</span><span class="p">${(c.prob * 100).toFixed(1)}%</span></li>`
     })
     .join('')
 }
@@ -226,7 +298,7 @@ function renderUtterance(done: number): void {
       const cls = age === 0 ? 'w fresh' : age < 3 ? 'w recent' : 'w'
       return `<span class="${cls}">${escapeHtml(w)}</span>`
     })
-    .join(' ')
+    .join('')
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +307,6 @@ function wire(): void {
   els.run.addEventListener('click', () => {
     els.run.disabled = true
     els.run.textContent = 'running…'
-    // Yield once so the button state paints before the synchronous forward passes.
     setTimeout(() => {
       try {
         regenerate()
@@ -286,12 +357,10 @@ function wire(): void {
 
   els.head.addEventListener('change', () => (headFilter = Number(els.head.value)))
 
-  // On a phone the panel would cover the thing it describes.
   if (window.innerWidth <= 900) {
     els.panel.hidden = true
     els.panelToggle.setAttribute('aria-expanded', 'false')
   }
-
   els.panelToggle.addEventListener('click', () => {
     const open = !els.panel.hidden
     els.panel.hidden = open
@@ -306,6 +375,7 @@ function wire(): void {
     }
   })
 
+  els.steps.max = String(MAX_CONTEXT - 12)
   window.addEventListener('resize', resize)
 }
 
@@ -338,7 +408,7 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Deterministic seek, for screenshots and for debugging a specific instant.
+ * Deterministic seek, for screenshots and recording.
  * `__uc.at(3, 0.5)` parks the wavefront halfway through the fourth word's pass.
  */
 declare global {
@@ -369,7 +439,6 @@ window.__uc = {
   duration() {
     return run.steps.length * STEP_MS
   },
-  /** Render one exact instant from one exact camera, and resolve once it is on screen. */
   capture(ms, azimuth, elevation, distance) {
     playing = false
     position = ms
@@ -378,5 +447,4 @@ window.__uc = {
   },
 }
 
-// Defer one frame so the boot screen actually paints before the model is built.
-requestAnimationFrame(() => requestAnimationFrame(boot))
+void boot()

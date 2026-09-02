@@ -103,3 +103,27 @@ export function orthonormalize(z: Float32Array, rows: number, cols: number): voi
     for (let i = 0; i < rows; i++) z[i * cols + j] /= n
   }
 }
+
+/** LayerNorm with learned scale and shift — what GPT-2 actually uses. */
+export function layerNormAffine(
+  v: Float32Array,
+  off: number,
+  d: number,
+  gamma: Float32Array,
+  beta: Float32Array,
+  eps: number,
+  out: Float32Array,
+  outOff: number,
+): void {
+  let mean = 0
+  for (let i = 0; i < d; i++) mean += v[off + i]
+  mean /= d
+  let varr = 0
+  for (let i = 0; i < d; i++) {
+    const x = v[off + i] - mean
+    varr += x * x
+  }
+  varr /= d
+  const inv = 1 / Math.sqrt(varr + eps)
+  for (let i = 0; i < d; i++) out[outOff + i] = (v[off + i] - mean) * inv * gamma[i] + beta[i]
+}

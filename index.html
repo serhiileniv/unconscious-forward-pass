@@ -27,7 +27,8 @@
     <aside id="panel">
       <section>
         <label class="field-label" for="prompt">prompt</label>
-        <textarea id="prompt" rows="2" spellcheck="false">most of what a mind does is never</textarea>
+        <textarea id="prompt" rows="2" spellcheck="false">The Eiffel Tower is located in the city of</textarea>
+        <div id="tokens" aria-label="how GPT-2 splits this prompt"></div>
         <div class="row">
           <label class="field-label" for="steps">words</label>
           <input id="steps" type="range" min="4" max="14" step="1" value="10" />
@@ -40,6 +41,7 @@
         </div>
         <button id="run" type="button" class="primary">run the pass</button>
         <p id="build-note" class="note"></p>
+        <div id="presets"></div>
       </section>
 
       <section>
@@ -59,24 +61,42 @@
       <section>
         <h2>legend</h2>
         <ul class="legend">
-          <li><i class="sw active"></i> feature awake</li>
-          <li><i class="sw peak"></i> strongly active</li>
-          <li><i class="sw supp"></i> suppressed — active, then overruled</li>
+          <li><i class="sw active"></i> word this layer pushed toward</li>
+          <li><i class="sw peak"></i> pushed hard</li>
+          <li><i class="sw supp"></i> word this layer pushed <em>away</em> from</li>
           <li><i class="sw attn"></i> attention reaching backward</li>
-          <li><i class="sw plan"></i> points at a word not yet written</li>
+          <li><i class="sw plan"></i> a word it writes several steps later</li>
         </ul>
       </section>
 
       <section>
         <h2>what this is</h2>
         <p class="note">
-          A real 12-layer transformer runs in your browser. Attention, superposition,
-          sparsity and suppression are genuinely computed — the geometry you see is
-          the model's own. Two caveats, stated plainly: the network is untrained, so
-          its word choice is anchored by corpus bigram statistics rather than
-          learned language; and the feature dictionary is constructed rather than
-          learned by a sparse autoencoder. This is the architecture of thinking, not
-          a scan of any deployed model.
+          Qwen2.5 0.5B Instruct, the real published weights, running its real
+          forward pass in your browser. Every point is an actual token of its
+          vocabulary, placed at its own row of the output head, so two points sit
+          close together exactly when the model puts those words close together.
+        </p>
+        <p class="note">
+          A point lights when <b>that layer pushed the model toward saying that
+          word</b>. The residual stream is a running sum and the output head is
+          linear, so each layer's contribution to every word's score is exactly
+          computable, and the contributions add up to the model's real output.
+          Warm means pushed toward; violet means pushed away.
+        </p>
+        <p class="note">
+          This is a decomposition, not an estimate. The running total at the final
+          layer equals the model's own logits to the last bit — max absolute error
+          <b>0.0</b>, checked in <code>tools/evalmodel.ts</code>. An earlier
+          technique, the logit lens, re-normalises at each depth instead; measured
+          on this model it disagrees with the real output at every layer before 20,
+          which is why it is not what you are looking at.
+        </p>
+        <p class="note">
+          What this does not show: why a layer pushed as it did, or any state the
+          output head cannot see. These are not the words in the model's mind. They
+          are the exact amount each layer moved every word's score, summing to what
+          it actually said.
         </p>
       </section>
     </aside>
@@ -92,9 +112,11 @@
       </div>
       <div class="stat ratio"><span class="k">ratio</span><span class="v" id="r-ratio">—</span></div>
       <div class="stat"><span class="k">layer</span><span class="v" id="r-layer">—</span></div>
-      <div class="stat"><span class="k">awake</span><span class="v" id="r-awake">—</span></div>
+      <div class="stat"><span class="k">leaning</span><span class="v" id="r-awake">—</span></div>
       <div class="stat"><span class="k">contending</span><span class="v" id="r-contending">—</span></div>
       <div class="stat"><span class="k">entropy</span><span class="v" id="r-entropy">—</span></div>
+      <div class="stat"><span class="k">answer formed</span><span class="v" id="r-agree">—</span></div>
+      <p id="lens-note"></p>
     </div>
 
     <div id="fan" hidden>
@@ -114,7 +136,13 @@
 
     <div id="utterance"><span id="utterance-prompt"></span><span id="utterance-out"></span></div>
 
-    <div id="boot"><span>building the space…</span></div>
+    <div id="boot">
+      <div class="boot-inner">
+        <p id="boot-phase">starting</p>
+        <div class="boot-bar"><i id="boot-fill"></i></div>
+        <p id="boot-detail" class="note">Qwen2.5 0.5B is 942 MB. It downloads once, then your browser caches it.</p>
+      </div>
+    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

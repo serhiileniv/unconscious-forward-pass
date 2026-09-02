@@ -1,14 +1,23 @@
 import * as THREE from 'three'
-import type { Session } from '../model/run'
-import type { StepTrace } from '../model/transformer'
+import type { LM } from '../model/lm'
+import type { StepTrace } from '../model/trace'
 import { PALETTE } from './palette'
 
-export const LAYER_GAP = 3.7
+/**
+ * The stack occupies the same depth whatever the model's layer count, so a
+ * 24-layer model frames exactly like a 12-layer one and the camera never has to
+ * be retuned per checkpoint.
+ */
+export const STACK_DEPTH = 34
+
+export function layerGap(nLayers: number): number {
+  return STACK_DEPTH / Math.max(1, nLayers - 1)
+}
 export const TOKEN_GAP = 1.7
 export const CLOUD_RADIUS = 13
 
 export function layerZ(layer: number, nLayers: number): number {
-  return (layer - (nLayers - 1) / 2) * LAYER_GAP
+  return (layer - (nLayers - 1) / 2) * layerGap(nLayers)
 }
 
 export function tokenX(pos: number, T: number): number {
@@ -16,34 +25,32 @@ export function tokenX(pos: number, T: number): number {
 }
 
 /**
- * The feature cloud: every dictionary direction, drawn once per layer.
+ * The token cloud: one point per whole-word token, drawn once per layer.
  *
- * A feature's position is not decorative. It is its actual direction in residual
- * space, put through the same fixed 3D projection the residual stream uses, so
- * two points sit close together exactly when the two directions are close in the
- * real 96-dimensional space. The cloud's shape is the model's geometry.
+ * A point's position is not decorative. It is that token's real row of GPT-2's
+ * unembedding matrix, put through the same fixed 3D projection the residual
+ * stream uses, so two points sit close together exactly when GPT-2 puts those
+ * two tokens close together in its 768-dimensional space. The cloud's shape is
+ * the model's own geometry, not an arrangement chosen to look good.
+ *
+ * A point lights when the logit lens at that layer is leaning toward its token.
  */
 export class Lattice {
   readonly points: THREE.Points
+  /** 95th-percentile radius of the cloud, so other objects can be sized to it. */
+  readonly radius: number
   private readonly colors: Float32Array
   private readonly sizes: Float32Array
   private readonly nFeatures: number
   private readonly geom: THREE.BufferGeometry
 
-  constructor(session: Session) {
-    const { model, cfg, projector } = session
-    this.nFeatures = cfg.nFeatures
-    const total = cfg.nFeatures * cfg.nLayers
+  constructor(model: LM) {
+    const nFeatures = model.lensIds.length
+    const nLayers = model.cfg.nLayer
+    this.nFeatures = nFeatures
+    const total = nFeatures * nLayers
 
-    // Project every dictionary row to 3D once.
-    const flat = new Float32Array(cfg.nFeatures * 3)
-    for (let f = 0; f < cfg.nFeatures; f++) {
-      for (let c = 0; c < 3; c++) {
-        let s = 0
-        for (let i = 0; i < cfg.dModel; i++) s += model.dict[f * cfg.dModel + i] * projector[i * 3 + c]
-        flat[f * 3 + c] = s
-      }
-    }
+    const flat = model.lensPos
     let sd = 0
     for (let i = 0; i < flat.length; i++) sd += flat[i] * flat[i]
     sd = Math.sqrt(sd / flat.length) || 1
@@ -52,21 +59,31 @@ export class Lattice {
     this.colors = new Float32Array(total * 3)
     this.sizes = new Float32Array(total)
 
-    for (let f = 0; f < cfg.nFeatures; f++) {
+    // Different models put their unembedding rows at wildly different scales, so
+    // fit the cloud to a known radius rather than to any absolute magnitude.
+    // Ordering and angle are preserved; only the radial scale is fitted.
+    const radii = new Float32Array(nFeatures)
+    for (let f = 0; f < nFeatures; f++) {
+      const r = Math.hypot(flat[f * 3] / sd, flat[f * 3 + 1] / sd) || 1e-6
+      radii[f] = Math.pow(r, 0.62)
+    }
+    const sorted = Float32Array.from(radii).sort()
+    const fit = (CLOUD_RADIUS * 0.78) / (sorted[Math.floor(sorted.length * 0.95)] || 1)
+    this.radius = CLOUD_RADIUS * 0.78
+
+    for (let f = 0; f < nFeatures; f++) {
       let px = flat[f * 3] / sd
       let py = flat[f * 3 + 1] / sd
       const pz = flat[f * 3 + 2] / sd
-      // Push outward slightly so the cloud reads as a disc rather than a blob;
-      // this preserves ordering and relative angle, only rescaling radius.
       const r = Math.hypot(px, py) || 1e-6
-      const rr = Math.pow(r, 0.62) * CLOUD_RADIUS * 0.43
+      const rr = radii[f] * fit
       px = (px / r) * rr
       py = (py / r) * rr
-      for (let l = 0; l < cfg.nLayers; l++) {
-        const idx = l * cfg.nFeatures + f
+      for (let l = 0; l < nLayers; l++) {
+        const idx = l * nFeatures + f
         positions[idx * 3] = px
         positions[idx * 3 + 1] = py
-        positions[idx * 3 + 2] = layerZ(l, cfg.nLayers) + pz * 0.5
+        positions[idx * 3 + 2] = layerZ(l, nLayers) + pz * layerGap(nLayers) * 0.16
       }
     }
 
@@ -76,7 +93,7 @@ export class Lattice {
     this.geom.setAttribute('size', new THREE.BufferAttribute(this.sizes, 1))
 
     const material = new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: 420 } },
+      uniforms: { uScale: { value: 300 } },
       vertexShader: `
         attribute float size;
         varying vec3 vColor;
@@ -143,21 +160,21 @@ export class Lattice {
       for (const hits of layer.suppressed) {
         for (const hit of hits) {
           const i = (base + hit.id) * 3
-          const a = Math.min(1, Math.abs(hit.delta) * 0.5) * w
-          const g = a * 1.35
+          const a = Math.min(1, Math.abs(hit.delta) * 0.6) * w
+          const g = a * 0.95
           c[i] += PALETTE.suppressed[0] * g
           c[i + 1] += PALETTE.suppressed[1] * g
           c[i + 2] += PALETTE.suppressed[2] * g
-          s[base + hit.id] = Math.max(s[base + hit.id], 0.46 + a * 1.0)
+          s[base + hit.id] = Math.max(s[base + hit.id], 0.34 + a * 0.55)
         }
       }
 
       for (const hits of layer.features) {
         for (const hit of hits) {
           const i = (base + hit.id) * 3
-          const a = Math.min(1, hit.act * 0.42) * w
+          const a = Math.min(1, (hit.act - 1.4) * 0.45) * w
           // Strong activations run toward amber; ordinary ones stay bone white.
-          const heat = Math.min(1, Math.max(0, hit.act - 1.0) * 0.55)
+          const heat = Math.min(1, Math.max(0, hit.act - 2.6) * 0.5)
           const g = a * 1.5
           c[i] += (PALETTE.active[0] * (1 - heat) + PALETTE.peak[0] * heat) * g
           c[i + 1] += (PALETTE.active[1] * (1 - heat) + PALETTE.peak[1] * heat) * g

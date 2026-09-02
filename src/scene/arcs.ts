@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { StepTrace } from '../model/transformer'
+import type { StepTrace } from '../model/trace'
 import { streamPoint } from './streams'
 import { PALETTE } from './palette'
 

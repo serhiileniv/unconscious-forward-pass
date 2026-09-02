@@ -165,6 +165,26 @@ select { width: 100%; padding: 5px 6px; color: var(--text); background: #0d1110;
 .sw.plan { background: var(--peak); box-shadow: 0 0 9px var(--peak); }
 
 .note { margin: 8px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.65; }
+.note code { font-size: 10px; color: var(--text); }
+
+/* How GPT-2 actually splits the prompt. Byte-level BPE takes anything, but what
+   comes out is often not words, and seeing that explains a lot of the behaviour. */
+#tokens { display: flex; flex-wrap: wrap; gap: 2px; margin: -4px 0 10px; }
+.tok {
+  padding: 1px 4px;
+  font-size: 10.5px;
+  color: var(--muted);
+  background: #141a19;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  white-space: pre;
+}
+
+#presets { display: flex; flex-direction: column; gap: 3px; margin-top: 9px; }
+#presets button { text-align: left; padding: 4px 7px; font-size: 10.5px; color: var(--muted); border-color: transparent; }
+#presets button:hover { color: var(--active); border-color: var(--line); }
+
+
 
 /* --- readout --- */
 #readout {
@@ -180,6 +200,15 @@ select { width: 100%; padding: 5px 6px; color: var(--text); background: #0d1110;
 .stat .v { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 76px; }
 .stat.big .v { font-size: 22px; color: var(--active); line-height: 1.25; }
 .stat.ratio .v { color: var(--peak); }
+#lens-note {
+  max-width: 30ch;
+  margin: 5px 0 0 auto;
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--dim);
+}
+#lens-note.warn { color: var(--supp); }
+#lens-note.good { color: var(--attn); }
 .stat.big:nth-child(2) .v { color: var(--peak); }
 
 /* --- candidate fan --- */
@@ -261,6 +290,11 @@ select { width: 100%; padding: 5px 6px; color: var(--text); background: #0d1110;
   transition: opacity 500ms ease;
 }
 #boot.gone { opacity: 0; pointer-events: none; }
+.boot-inner { width: min(360px, calc(100vw - 48px)); text-align: center; }
+#boot-phase { margin: 0 0 12px; letter-spacing: 0.14em; text-transform: uppercase; font-size: 10px; color: var(--dim); }
+.boot-bar { height: 1px; background: var(--line); overflow: hidden; }
+.boot-bar i { display: block; width: 0; height: 100%; background: var(--active); transition: width 200ms linear; }
+#boot-detail { text-align: center; }
 
 @media (max-width: 900px) {
   #panel-toggle { display: block; }

@@ -5,10 +5,11 @@
   "type": "module",
   "description": "A 3D simulation of the sub-verbal computation inside a transformer forward pass.",
   "scripts": {
-    "dev": "vite",
+    "dev": "npm run fetch-weights && vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "fetch-weights": "node scripts/fetch-weights.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
