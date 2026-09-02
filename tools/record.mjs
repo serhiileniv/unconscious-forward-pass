@@ -72,7 +72,8 @@ await send('Page.enable')
 await send('Page.navigate', { url })
 
 // Wait for the model build to finish and the hooks to appear.
-for (let i = 0; i < 120; i++) {
+// Half a gigabyte of weights has to arrive and unpack first.
+for (let i = 0; i < 260; i++) {
   if (await evaluate('!!window.__uc')) break
   await sleep(500)
 }
@@ -86,7 +87,7 @@ await evaluate(`(() => {
   document.getElementById('run').click()
   return true
 })()`)
-await sleep(2500)
+await sleep(22000) // a full generation is ~10s of real forward passes
 await evaluate(`(() => {
   for (const id of ['panel', 'panel-toggle', 'transport']) {
     const el = document.getElementById(id)
