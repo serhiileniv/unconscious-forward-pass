@@ -1,0 +1,26 @@
+{
+  "name": "unconscious",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A 3D simulation of the sub-verbal computation inside a transformer forward pass.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/three": "^0.172.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vite-plugin-singlefile": "^2.1.0"
+  },
+  "dependencies": {
+    "three": "^0.172.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

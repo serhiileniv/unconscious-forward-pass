@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>The Unconscious of a Forward Pass</title>
+    <meta name="description" content="A 3D simulation of the sub-verbal computation inside a transformer: thousands of features considered, one word spoken." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0c0b'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23ffc96b'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%238fa6a2' stroke-opacity='.45'/%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%238fa6a2' stroke-opacity='.2'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="labels" aria-hidden="true"></div>
+
+    <header id="masthead">
+      <h1>The Unconscious of a Forward Pass</h1>
+      <p class="sub">Everything a model considers, and the one word it says</p>
+    </header>
+
+    <button id="panel-toggle" type="button" aria-expanded="true" aria-controls="panel">controls</button>
+
+    <aside id="panel">
+      <section>
+        <label class="field-label" for="prompt">prompt</label>
+        <textarea id="prompt" rows="2" spellcheck="false">most of what a mind does is never</textarea>
+        <div class="row">
+          <label class="field-label" for="steps">words</label>
+          <input id="steps" type="range" min="4" max="14" step="1" value="10" />
+          <output id="steps-out">10</output>
+        </div>
+        <div class="row">
+          <label class="field-label" for="temp">temp</label>
+          <input id="temp" type="range" min="0.3" max="1.5" step="0.05" value="0.85" />
+          <output id="temp-out">0.85</output>
+        </div>
+        <button id="run" type="button" class="primary">run the pass</button>
+        <p id="build-note" class="note"></p>
+      </section>
+
+      <section>
+        <h2>show</h2>
+        <label class="check"><input type="checkbox" id="t-features" checked /> <span>feature cloud</span></label>
+        <label class="check"><input type="checkbox" id="t-attention" checked /> <span>attention</span></label>
+        <label class="check"><input type="checkbox" id="t-streams" checked /> <span>residual stream</span></label>
+        <label class="check"><input type="checkbox" id="t-labels" checked /> <span>feature names</span></label>
+        <label class="check"><input type="checkbox" id="t-plans" checked /> <span>anticipation</span></label>
+        <label class="check"><input type="checkbox" id="t-rotate" checked /> <span>drift</span></label>
+        <div class="row">
+          <label class="field-label" for="head">head</label>
+          <select id="head"><option value="-1">all</option></select>
+        </div>
+      </section>
+
+      <section>
+        <h2>legend</h2>
+        <ul class="legend">
+          <li><i class="sw active"></i> feature awake</li>
+          <li><i class="sw peak"></i> strongly active</li>
+          <li><i class="sw supp"></i> suppressed — active, then overruled</li>
+          <li><i class="sw attn"></i> attention reaching backward</li>
+          <li><i class="sw plan"></i> points at a word not yet written</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>what this is</h2>
+        <p class="note">
+          A real 12-layer transformer runs in your browser. Attention, superposition,
+          sparsity and suppression are genuinely computed — the geometry you see is
+          the model's own. Two caveats, stated plainly: the network is untrained, so
+          its word choice is anchored by corpus bigram statistics rather than
+          learned language; and the feature dictionary is constructed rather than
+          learned by a sparse autoencoder. This is the architecture of thinking, not
+          a scan of any deployed model.
+        </p>
+      </section>
+    </aside>
+
+    <div id="readout">
+      <div class="stat big">
+        <span class="k">considered</span>
+        <span class="v" id="r-considered">0</span>
+      </div>
+      <div class="stat big">
+        <span class="k">spoken</span>
+        <span class="v" id="r-spoken">0</span>
+      </div>
+      <div class="stat ratio"><span class="k">ratio</span><span class="v" id="r-ratio">—</span></div>
+      <div class="stat"><span class="k">layer</span><span class="v" id="r-layer">—</span></div>
+      <div class="stat"><span class="k">awake</span><span class="v" id="r-awake">—</span></div>
+      <div class="stat"><span class="k">contending</span><span class="v" id="r-contending">—</span></div>
+      <div class="stat"><span class="k">entropy</span><span class="v" id="r-entropy">—</span></div>
+    </div>
+
+    <div id="fan" hidden>
+      <h2>next word</h2>
+      <ul id="fan-list"></ul>
+    </div>
+
+    <footer id="transport">
+      <button id="play" type="button" aria-label="pause">❚❚</button>
+      <input id="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="position" />
+      <div class="speeds">
+        <button type="button" data-speed="0.5">½×</button>
+        <button type="button" data-speed="1" class="on">1×</button>
+        <button type="button" data-speed="2">2×</button>
+      </div>
+    </footer>
+
+    <div id="utterance"><span id="utterance-prompt"></span><span id="utterance-out"></span></div>
+
+    <div id="boot"><span>building the space…</span></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
