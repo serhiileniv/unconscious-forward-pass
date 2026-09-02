@@ -166,6 +166,7 @@ select { width: 100%; padding: 5px 6px; color: var(--text); background: #0d1110;
 
 .note { margin: 8px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.65; }
 .note code { font-size: 10px; color: var(--text); }
+.note b { font-weight: 400; color: var(--active); }
 
 /* How GPT-2 actually splits the prompt. Byte-level BPE takes anything, but what
    comes out is often not words, and seeing that explains a lot of the behaviour. */

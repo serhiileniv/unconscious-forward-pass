@@ -1,5 +1,5 @@
 import { BPETokenizer, loadTokenizer } from './bpe'
-import { dot, gelu, layerNormAffine, mulberry32, softmax } from './math'
+import { dot, gelu, layerNormAffine, pca3, projectionFidelity, softmax } from './math'
 import { fetchWithProgress, Safetensors } from './safetensors'
 
 export interface GPT2Config {
@@ -63,6 +63,7 @@ export class GPT2 {
   readonly lensPos: Float32Array
   /** nEmbd × 3 — the same projection the residual stream is drawn through. */
   readonly projector: Float32Array
+  readonly fidelity: { variance: number; distance: number }
 
   private constructor(cfg: GPT2Config, tok: BPETokenizer, st: Safetensors, nLens: number, seed: number) {
     this.cfg = cfg
@@ -89,14 +90,15 @@ export class GPT2 {
       })
     }
 
+    // Every token in the vocabulary, in order. `nLens` caps it only when a
+    // caller asks for a subset; the default is the whole thing, because a
+    // curated subset would make the picture a claim about the curation.
+    const limit = nLens > 0 ? Math.min(nLens, cfg.vocabSize) : cfg.vocabSize
     const ids: number[] = []
     const pieces: string[] = []
-    for (let id = 0; id < cfg.vocabSize && ids.length < nLens; id++) {
-      const piece = tok.piece(id)
-      if (/^ [A-Za-z]{2,}$/.test(piece)) {
-        ids.push(id)
-        pieces.push(piece)
-      }
+    for (let id = 0; id < limit; id++) {
+      ids.push(id)
+      pieces.push(tok.piece(id))
     }
     this.lensIds = ids
     this.lensPieces = pieces
@@ -109,22 +111,18 @@ export class GPT2 {
 
     // One fixed random projection of the real unembedding rows. Two points are
     // close on screen exactly when GPT-2 puts those two tokens close together.
-    const rand = mulberry32(seed)
-    const proj = new Float32Array(d * 3)
-    for (let i = 0; i < proj.length; i++) {
-      let u = 0
-      while (u === 0) u = rand()
-      proj[i] = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()) / Math.sqrt(d)
-    }
-    this.projector = proj
+    const { basis, mean } = pca3(this.lensMatrix, ids.length, d, 12)
+    this.projector = basis
     this.lensPos = new Float32Array(ids.length * 3)
     for (let i = 0; i < ids.length; i++) {
       for (let c = 0; c < 3; c++) {
         let s = 0
-        for (let k = 0; k < d; k++) s += this.lensMatrix[i * d + k] * proj[k * 3 + c]
+        for (let k = 0; k < d; k++) s += (this.lensMatrix[i * d + k] - mean[k]) * basis[k * 3 + c]
         this.lensPos[i * 3 + c] = s
       }
     }
+    this.fidelity = projectionFidelity(this.lensMatrix, this.lensPos, mean, ids.length, d)
+    void seed
   }
 
   static async load(

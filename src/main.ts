@@ -1,6 +1,6 @@
 import './style.css'
 import type { LM } from './model/lm'
-import { generate, loadModel, MAX_CONTEXT, type Run } from './model/run'
+import { DEFAULT_MODEL, generate, loadModel, MAX_CONTEXT, MODELS, type Run } from './model/run'
 import { View, type RenderState } from './scene/view'
 
 /** Milliseconds for one full sweep through the stack, at 1×. */
@@ -39,6 +39,8 @@ const els = {
   tempOut: $<HTMLOutputElement>('temp-out'),
   run: $<HTMLButtonElement>('run'),
   buildNote: $('build-note'),
+  model: $<HTMLSelectElement>('model'),
+  fidelityNote: $('fidelity-note'),
   head: $<HTMLSelectElement>('head'),
   play: $<HTMLButtonElement>('play'),
   scrub: $<HTMLInputElement>('scrub'),
@@ -80,13 +82,21 @@ let headFilter = -1
 
 // ---------------------------------------------------------------------------
 
+/** Which checkpoint to load. A reload rather than a swap, so only one set of
+ * weights is ever resident. */
+function modelKey(): string {
+  const k = new URLSearchParams(location.search).get('model') ?? DEFAULT_MODEL
+  return k in MODELS ? k : DEFAULT_MODEL
+}
+
 async function boot(): Promise<void> {
+  const choice = MODELS[modelKey()]
   try {
-    model = await loadModel((phase, frac) => {
-      els.bootPhase.textContent = phase === 'weights' ? 'downloading Qwen2.5' : phase
+    model = await loadModel(modelKey(), (phase: string, frac: number) => {
+      els.bootPhase.textContent = phase === 'weights' ? `downloading ${choice.name}` : phase
       els.bootFill.style.width = `${Math.round(frac * 100)}%`
       if (phase === 'weights') {
-        els.bootDetail.textContent = `${(frac * 942).toFixed(0)} of 942 MB — cached after the first visit`
+        els.bootDetail.textContent = `${Math.round(frac * 100)}% — cached after the first visit`
       }
     })
   } catch (err) {
@@ -108,8 +118,29 @@ async function boot(): Promise<void> {
     els.head.appendChild(opt)
   }
   els.buildNote.textContent =
-    `${model.cfg.name} · ${model.cfg.nLayer} layers · ${model.cfg.nEmbd} dims · ` +
-    `${model.cfg.nHead} heads · ${model.lensIds.length.toLocaleString()} tokens drawn`
+    `${model.cfg.nLayer} layers · ${model.cfg.nEmbd} dims · ${model.cfg.nHead} heads · ` +
+    `all ${model.lensIds.length.toLocaleString()} tokens drawn`
+  for (const [key, m] of Object.entries(MODELS)) {
+    const opt = document.createElement('option')
+    opt.value = key
+    opt.textContent = `${m.name} — ${m.note}`
+    opt.selected = key === modelKey()
+    els.model.appendChild(opt)
+  }
+  els.model.addEventListener('change', () => {
+    location.search = `?model=${els.model.value}`
+  })
+
+  // The cloud's shape is the weakest claim in the piece, so it states its own
+  // limits rather than letting the viewer read structure into a 3D shadow of a
+  // 896-dimensional space.
+  const f = model.fidelity
+  els.fidelityNote.innerHTML =
+    `Those are 3 of ${model.cfg.nEmbd} dimensions, holding <b>${(f.variance * 100).toFixed(1)}%</b> of the ` +
+    `variance, with drawn distances correlating to the real ones at <b>r = ${f.distance.toFixed(2)}</b>. ` +
+    `So proximity in the cloud is a weak hint, not evidence: points near each other are somewhat more ` +
+    `likely to be related, and often are not. Depth, colour and brightness carry the exact quantities; ` +
+    `the left-right and up-down placement does not.`
 
   wire()
   buildPresets()
@@ -209,8 +240,8 @@ function updateHud(step: number, t: number, sweepT: number, layerF: number): voi
   const trace = run.steps[step]
 
   let considered = 0
-  for (let s = 0; s < step; s++) considered += run.steps[s].activations
-  considered += Math.round(trace.activations * sweepT)
+  for (let s = 0; s < step; s++) considered += run.steps[s].scoreUpdates
+  considered += Math.round(trace.scoreUpdates * sweepT)
 
   const done = step + (t >= SWEEP ? 1 : 0)
   els.considered.textContent = considered.toLocaleString()
@@ -227,8 +258,8 @@ function updateHud(step: number, t: number, sweepT: number, layerF: number): voi
     for (const hits of layer.features) awake += hits.length
     let contending = 0
     for (const n of layer.contended) contending += n
-    els.awake.textContent = String(awake)
-    els.contending.textContent = contending.toLocaleString()
+    els.awake.textContent = `${awake} drawn`
+    els.contending.textContent = `${contending.toLocaleString()} of ${model.lensIds.length.toLocaleString()}`
     setAgreement(layer.agreement)
   } else {
     els.awake.textContent = '—'

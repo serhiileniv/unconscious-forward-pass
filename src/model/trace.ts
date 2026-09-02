@@ -57,6 +57,12 @@ export interface StepTrace {
   candidates: Candidate[]
   chosen: number
   entropy: number
-  /** Display-token activations across this pass — the "considered" count. */
+  /** How many of the drawn tokens were lit in this pass. A display setting. */
   activations: number
+  /**
+   * Word-scores this pass actually moved: every token in the vocabulary, at
+   * every layer. Unlike `activations` this is a property of the model rather
+   * than of how many points are drawn, which is why it is the headline figure.
+   */
+  scoreUpdates: number
 }

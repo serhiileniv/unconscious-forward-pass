@@ -30,6 +30,13 @@ export interface LM {
   readonly lensPos: Float32Array
   /** nEmbd × 3 — the projection the residual stream is drawn through. */
   readonly projector: Float32Array
+  /**
+   * What the 3D projection actually preserves: share of total variance, and the
+   * correlation between real high-dimensional distances and drawn ones. Three of
+   * several hundred dimensions cannot keep much, and the interface says so
+   * rather than letting the cloud imply a fidelity it does not have.
+   */
+  readonly fidelity: { variance: number; distance: number }
   newState(maxT: number): LMState
 }
 

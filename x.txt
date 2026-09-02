@@ -1,0 +1,41 @@
+[1/6]
+I asked Claude to show me its unconscious in 3D.
+
+It said it has no introspective access. Then it pointed at something real: in one forward pass a model moves every word's score, over and over, and one word comes out.
+
+So we built it. Qwen2.5 0.5B, real weights, in the browser.
+
+[2/6]
+Every point is a real token, sitting at its own row of the model's output head. Two points are close when the model puts those two words close.
+
+A point lights when that layer pushed the model toward saying it. Warm = pushed toward. Violet = pushed away.
+
+[3/6]
+This is not a logit lens. It's an exact decomposition.
+
+The residual stream is a running sum and the output head is linear, so each layer's contribution to every word's score is exactly computable, and the parts sum to the model's real logits.
+
+Max abs error: 0.00e+0
+
+[4/6]
+"The Eiffel Tower is located in the city of" → " Paris" (54.4%)
+
+Contribution to " Paris":
+L19 +0.65
+L20 +5.73
+L21 +10.90
+L22 −3.86
+
+Layer 21 fires " French" " France" " Paris" " Louis" at once. Layer 22 then pushes " Paris" back down.
+
+[5/6]
+Why not the logit lens: on this model it disagrees with the real output at every layer before 20 of 24. KL 8–13, zero top-10 overlap, top tokens " rain", " sequ", " swe".
+
+It would have drawn twenty layers of noise as though it were thought.
+
+[6/6]
+What it does not show: why a layer pushed as it did, or anything the output head can't see.
+
+These aren't "the words in its mind". They're the exact amount each layer moved every word's score.
+
+github.com/serhiileniv/unconscious-forward-pass

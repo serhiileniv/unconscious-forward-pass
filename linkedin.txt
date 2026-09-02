@@ -1,0 +1,25 @@
+I asked Claude to show me what its unconscious mind looks like, in 3D.
+
+It said it can't introspect. No access to its own weights, nothing to look inward at. Then it pointed at something I hadn't considered: in a single forward pass, a language model moves the score of every word in its vocabulary, layer after layer, and almost none of that reaches the page. One word comes out.
+
+So we built it.
+
+Qwen2.5 0.5B Instruct, the real published weights, running its real forward pass in the browser. Every point is an actual token, placed at its own row of the model's output head. A point lights when that layer pushed the model toward saying that word, and turns violet when the layer pushed it away.
+
+What matters most here is that it's exact rather than illustrative.
+
+The residual stream is a running sum and the output head is linear. So with the final norm's scale fixed, each layer's contribution to every word's score is exactly computable, and the contributions add up to the model's real output. Verified: maximum absolute error 0.00e+0 against the actual logits.
+
+A worked example. Prompt: "The Eiffel Tower is located in the city of". The model says " Paris" at 54.4%.
+
+Contribution to " Paris", by layer:
+L19 +0.65 → L20 +5.73 → L21 +10.90 → L22 −3.86
+
+Layer 21 fires " French" +12.9, " France" +11.6, " Paris" +10.9 and " Louis" +7.8 together. The France concept arrives in one layer. Then layer 22 pushes " Paris" back down while promoting " in", " and", " the".
+
+I started with the logit lens, which is the better known technique, and dropped it. Measured on this model it disagrees with the real output at every layer before 20 of 24: KL between 8 and 13, zero overlap in the top ten, top tokens like " rain", " sequ", " swe". It would have rendered twenty layers of noise as though it were thought.
+
+What this does not show: why a layer pushed the way it did, or any internal state the output head cannot see. These are not "the words in the model's mind". They are the exact amount each layer moved every word's score.
+
+Code, and the script that checks the arithmetic:
+github.com/serhiileniv/unconscious-forward-pass

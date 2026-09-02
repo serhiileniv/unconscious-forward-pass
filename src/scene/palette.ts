@@ -8,7 +8,7 @@
  */
 export const PALETTE = {
   bg: 0x0a0c0b,
-  dormant: [0.048, 0.060, 0.058] as const,
+  dormant: [0.013, 0.017, 0.016] as const,
   active: [0.96, 0.94, 0.89] as const,
   peak: [1.0, 0.79, 0.42] as const,
   suppressed: [0.42, 0.37, 0.55] as const,

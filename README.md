@@ -3,15 +3,19 @@
 A 3D visualisation of what happens inside a language model between reading a
 prompt and saying one word.
 
-Qwen2.5 0.5B Instruct — the real published weights — runs its real forward pass
-in your browser. Nothing is simulated and nothing is estimated: what lights up is
-an exact decomposition of the model's own output.
+Real published weights run a real forward pass in your browser. Every token in
+the vocabulary is drawn, with no subset and no cap on how many may light at once,
+and what lights up is an exact decomposition of the model's own output.
+
+GPT-2 124M by default, because it stays interactive with all 50,257 of its tokens
+attributed at every layer. `?model=qwen` loads Qwen2.5 0.5B Instruct, which
+answers far better and runs about six times slower.
 
 ## What you are looking at
 
 | Element | What it is |
 | --- | --- |
-| **Point cloud** | One point per whole-word token, drawn once per layer, placed at that token's real row of the model's output head. Two points sit close together exactly when the model puts those two words close together. |
+| **Point cloud** | One point per token in the whole vocabulary, drawn once per layer, placed at that token's real row of the model's output head, projected to 3D by PCA. See *What the picture cannot carry* below before reading meaning into proximity. |
 | **Rings** | The 24 layer planes. Depth is time: the wavefront crossing them is one forward pass. |
 | **Filaments** | The residual stream, one per token. Every layer reads it, adds something, and puts it back; nothing is erased, only buried. |
 | **Arcs** | Attention at the layer being crossed — one position reaching back at earlier ones. Drawn as events, because that is what they are. |
@@ -55,11 +59,44 @@ Layer 21 fires `" French" +12.9`, `" France" +11.6`, `" Paris" +10.9`,
 pushes ` Paris` back down while promoting `" in"`, `" and"`, `" the"`. Those
 numbers are not an interpretation; they add up to what the model said.
 
-## What it does not show
+## What the picture cannot carry
 
-Why a layer pushed as it did, and any internal state the output head cannot see.
-These are not "the words in the model's mind". They are the exact amount each
-layer moved every word's score.
+Depth, colour and brightness are exact. Horizontal and vertical placement is not,
+and it is worth being blunt about how much it is not.
+
+The cloud is 3 of 768 dimensions. Measured over the real output-head rows
+(`tools/geometry.mjs`):
+
+| projection | variance kept | distance fidelity (Pearson r) |
+| --- | --- | --- |
+| random | 0.3% | 0.11 |
+| random + an `r^0.62` radial warp | 0.3% | 0.08 |
+| **top-3 PCA** (used) | **3.2%** | **0.33** |
+
+An earlier version shipped the random projection *and* the warp, and claimed in
+the interface that "two points sit close together exactly when the model puts
+those words close together". That was false: r = 0.11 is barely above noise, and
+the warp — added purely because it filled the disc more evenly — measurably made
+it worse. Both are gone. PCA is the best linear 3D summary available and roughly
+triples both figures, and the interface now reports them, because 3.2% still
+means proximity is a weak hint rather than evidence.
+
+Also not shown: why a layer pushed as it did, and any internal state the output
+head cannot see. These are not "the words in the model's mind". They are the
+exact amount each layer moved every word's score.
+
+## Display settings, kept separate from measurements
+
+One threshold decides what is drawn: a layer must move a token's score by more
+than 2.2 standard deviations. Nothing else is capped. There is no top-k — if a
+layer moves forty thousand scores hard, forty thousand points light.
+
+The readouts say which side of that line they are on. **Scores moved** is a
+property of the model: every layer changes the score of every token, so one
+generated word is `vocabulary x layers` score changes. **Lit** and **moved hard**
+are counts of drawn things and are labelled as such. An earlier version made the
+headline ratio out of the drawn count, which made it a statement about the
+display setting rather than about the model.
 
 ## Running it
 

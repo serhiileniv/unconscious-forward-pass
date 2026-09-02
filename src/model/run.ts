@@ -1,18 +1,38 @@
+import { GPT2 } from './gpt2'
 import { LlamaLM } from './llama'
 import type { LM, LMState, LoadProgress } from './lm'
 import { mulberry32, softmax } from './math'
 import type { Candidate, FeatureHit, LayerTrace, StepTrace } from './trace'
 
-export const MODEL_URL = '/model/qwen'
-export const MODEL_NAME = 'Qwen2.5 0.5B Instruct'
-/** How many whole-word tokens are drawn as points. */
-export const N_LENS = 6144
+export interface ModelChoice {
+  url: string
+  name: string
+  /** 0 means the whole vocabulary. */
+  nLens: number
+  note: string
+}
+
+/**
+ * GPT-2 first, because it is the one that stays interactive with every token in
+ * its vocabulary drawn and attributed — half a second per word against three and
+ * a quarter. Qwen answers far better and is one query parameter away, at the
+ * cost of a much slower run.
+ */
+export const MODELS: Record<string, ModelChoice> = {
+  gpt2: { url: '/model/gpt2', name: 'GPT-2 124M', nLens: 0, note: 'all 50,257 tokens · ~0.5s per word' },
+  qwen: { url: '/model/qwen', name: 'Qwen2.5 0.5B Instruct', nLens: 0, note: 'all 151,936 tokens · ~3s per word' },
+}
+
+export const DEFAULT_MODEL = 'gpt2'
 export const MAX_CONTEXT = 32
 
-/** How far a layer must push a token, in standard deviations, to be drawn. */
+/**
+ * How far a layer must move a token's score, in standard deviations, to be
+ * drawn. This is the only display threshold left. There is no cap on how many
+ * tokens may clear it: if a layer moves forty thousand scores hard, forty
+ * thousand points light.
+ */
 const Z_PUSH = 2.2
-/** How many pushes are drawn at once, per position, per layer. */
-const TOP_K = 16
 
 export interface Anticipation {
   step: number
@@ -37,8 +57,11 @@ export interface Run {
   promptText: string
 }
 
-export async function loadModel(onProgress?: LoadProgress): Promise<LM> {
-  return LlamaLM.load(MODEL_URL, MODEL_NAME, N_LENS, onProgress)
+export async function loadModel(key: string, onProgress?: LoadProgress): Promise<LM> {
+  const choice = MODELS[key] ?? MODELS[DEFAULT_MODEL]
+  return choice.url.includes('gpt2')
+    ? (GPT2.load(choice.url, choice.nLens, onProgress) as unknown as Promise<LM>)
+    : LlamaLM.load(choice.url, choice.name, choice.nLens, onProgress)
 }
 
 function sampleFrom(probs: Float32Array, order: number[], temperature: number, topP: number, rand: () => number): number {
@@ -112,12 +135,12 @@ function readLayer(model: LM, state: LMState, layer: number, T: number): {
       else if (z < -Z_PUSH) down.push({ id: i, act: -z, delta: delta[i] })
     }
     contended[pos] = up.length + down.length
+    // Sorted so labels can take the strongest, but nothing is dropped.
     up.sort((a, b) => b.act - a.act)
     down.sort((a, b) => b.act - a.act)
-    const kept = up.slice(0, TOP_K)
-    activations += kept.length + Math.min(down.length, TOP_K)
-    features.push(kept)
-    suppressed.push(down.slice(0, TOP_K))
+    activations += up.length + down.length
+    features.push(up)
+    suppressed.push(down)
   }
   return { features, suppressed, contended, activations }
 }
@@ -204,7 +227,18 @@ function buildTrace(model: LM, state: LMState, logits: Float32Array, active: num
   const order = Array.from({ length: probs.length }, (_, i) => i).sort((a, b) => probs[b] - probs[a]).slice(0, 40)
   const candidates: Candidate[] = order.map((id) => ({ id, word: model.tok.piece(id), prob: probs[id] }))
 
-  return { ids: state.ids.slice(), active, layers, candidates, chosen: order[0], entropy, activations }
+  return {
+    ids: state.ids.slice(),
+    active,
+    layers,
+    candidates,
+    chosen: order[0],
+    entropy,
+    activations,
+    // Every layer's write changes the score of every token in the vocabulary,
+    // not only the few thousand drawn. That is the real count.
+    scoreUpdates: model.cfg.vocabSize * nLayer,
+  }
 }
 
 export function generate(
@@ -214,7 +248,7 @@ export function generate(
   opts: { temperature?: number; topP?: number; seed?: number } = {},
 ): Run {
   const rand = mulberry32(opts.seed ?? 7)
-  const temperature = opts.temperature ?? 0.8
+  const temperature = opts.temperature ?? 0.5
   const topP = opts.topP ?? 0.9
 
   const text = prompt.trim() || 'The Eiffel Tower is located in the city of'
@@ -242,7 +276,7 @@ export function generate(
     const trace = buildTrace(model, state, logits, state.length - 1)
     trace.chosen = chosen
     steps.push(trace)
-    considered += trace.activations
+    considered += trace.scoreUpdates
     emitted.push(chosen)
 
     if (state.length >= MAX_CONTEXT) break

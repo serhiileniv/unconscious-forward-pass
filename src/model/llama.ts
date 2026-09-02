@@ -1,6 +1,6 @@
 import { type BPETokenizer, loadTokenizerJson } from './bpe'
 import type { LM, LMConfig, LMState, LoadProgress } from './lm'
-import { dot, mulberry32, softmax } from './math'
+import { dot, pca3, projectionFidelity, softmax } from './math'
 import { fetchWithProgress, Safetensors } from './safetensors'
 
 /**
@@ -76,6 +76,7 @@ export class LlamaLM implements LM {
   readonly lensMatrix: Float32Array
   readonly lensPos: Float32Array
   readonly projector: Float32Array
+  readonly fidelity: { variance: number; distance: number }
   readonly shape: Shape
   readonly layers: Layer[]
   readonly embed: Float32Array
@@ -111,14 +112,12 @@ export class LlamaLM implements LM {
       })
     }
 
+    const limit = nLens > 0 ? Math.min(nLens, shape.vocabSize) : shape.vocabSize
     const ids: number[] = []
     const pieces: string[] = []
-    for (let id = 0; id < shape.vocabSize && ids.length < nLens; id++) {
-      const piece = tok.piece(id)
-      if (/^ [A-Za-z]{2,}$/.test(piece)) {
-        ids.push(id)
-        pieces.push(piece)
-      }
+    for (let id = 0; id < limit; id++) {
+      ids.push(id)
+      pieces.push(tok.piece(id))
     }
     this.lensIds = ids
     this.lensPieces = pieces
@@ -129,22 +128,20 @@ export class LlamaLM implements LM {
       this.lensMatrix.set(this.head.subarray(ids[i] * d, ids[i] * d + d), i * d)
     }
 
-    const rand = mulberry32(seed)
-    const proj = new Float32Array(d * 3)
-    for (let i = 0; i < proj.length; i++) {
-      let u = 0
-      while (u === 0) u = rand()
-      proj[i] = (Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand())) / Math.sqrt(d)
-    }
-    this.projector = proj
+    // The two best linear directions through the real output-head rows, plus a
+    // third. A random projection here keeps almost none of the geometry.
+    const { basis, mean } = pca3(this.lensMatrix, ids.length, d, 12)
+    this.projector = basis
     this.lensPos = new Float32Array(ids.length * 3)
     for (let i = 0; i < ids.length; i++) {
       for (let c = 0; c < 3; c++) {
         let s = 0
-        for (let k = 0; k < d; k++) s += this.lensMatrix[i * d + k] * proj[k * 3 + c]
+        for (let k = 0; k < d; k++) s += (this.lensMatrix[i * d + k] - mean[k]) * basis[k * 3 + c]
         this.lensPos[i * 3 + c] = s
       }
     }
+    this.fidelity = projectionFidelity(this.lensMatrix, this.lensPos, mean, ids.length, d)
+    void seed
   }
 
   static async load(baseUrl: string, name: string, nLens: number, onProgress?: LoadProgress): Promise<LlamaLM> {

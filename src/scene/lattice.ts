@@ -15,6 +15,8 @@ export function layerGap(nLayers: number): number {
 }
 export const TOKEN_GAP = 1.7
 export const CLOUD_RADIUS = 13
+/** Size of a point that no layer has moved. */
+const DORMANT_SIZE = 0.13
 
 export function layerZ(layer: number, nLayers: number): number {
   return (layer - (nLayers - 1) / 2) * layerGap(nLayers)
@@ -43,6 +45,17 @@ export class Lattice {
   private readonly sizes: Float32Array
   private readonly nFeatures: number
   private readonly geom: THREE.BufferGeometry
+  /**
+   * Indices written last frame.
+   *
+   * With every token drawn there are hundreds of thousands of points, and
+   * clearing all of them each frame costs more than everything else in the
+   * renderer combined. Almost all stay dormant, so only the ones actually
+   * touched are reset.
+   */
+  private touched = new Int32Array(1 << 16)
+  private touchedCount = 0
+  private lastKey = -1
 
   constructor(model: LM) {
     const nFeatures = model.lensIds.length
@@ -58,14 +71,23 @@ export class Lattice {
     const positions = new Float32Array(total * 3)
     this.colors = new Float32Array(total * 3)
     this.sizes = new Float32Array(total)
+    const [d0, d1, d2] = PALETTE.dormant
+    for (let i = 0; i < total; i++) {
+      this.colors[i * 3] = d0
+      this.colors[i * 3 + 1] = d1
+      this.colors[i * 3 + 2] = d2
+      this.sizes[i] = DORMANT_SIZE
+    }
 
     // Different models put their unembedding rows at wildly different scales, so
     // fit the cloud to a known radius rather than to any absolute magnitude.
     // Ordering and angle are preserved; only the radial scale is fitted.
+    // Radius is scaled linearly and nothing else. An earlier r^0.62 warp filled
+    // the disc more evenly and measurably degraded distance fidelity, from
+    // r = 0.345 to 0.292, so it is gone: the only transform left is uniform.
     const radii = new Float32Array(nFeatures)
     for (let f = 0; f < nFeatures; f++) {
-      const r = Math.hypot(flat[f * 3] / sd, flat[f * 3 + 1] / sd) || 1e-6
-      radii[f] = Math.pow(r, 0.62)
+      radii[f] = Math.hypot(flat[f * 3] / sd, flat[f * 3 + 1] / sd) || 1e-6
     }
     const sorted = Float32Array.from(radii).sort()
     const fit = (CLOUD_RADIUS * 0.78) / (sorted[Math.floor(sorted.length * 0.95)] || 1)
@@ -93,7 +115,7 @@ export class Lattice {
     this.geom.setAttribute('size', new THREE.BufferAttribute(this.sizes, 1))
 
     const material = new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: 300 } },
+      uniforms: { uScale: { value: 240 } },
       vertexShader: `
         attribute float size;
         varying vec3 vColor;
@@ -140,14 +162,25 @@ export class Lattice {
    * nothing.
    */
   update(trace: StepTrace, layerF: number, tail = 1.25): void {
+    // Repainting at full frame rate re-uploads the whole buffer for a change the
+    // eye cannot resolve; sixths of a layer are indistinguishable in motion.
+    const key = Math.round(layerF * 6)
+    if (key === this.lastKey) return
+    this.lastKey = key
+
     const c = this.colors
     const s = this.sizes
     const [dr, dg, db] = PALETTE.dormant
-    for (let i = 0, n = c.length / 3; i < n; i++) {
-      c[i * 3] = dr
-      c[i * 3 + 1] = dg
-      c[i * 3 + 2] = db
-      s[i] = 0.24
+    for (let i = 0; i < this.touchedCount; i++) {
+      const idx = this.touched[i]
+      c[idx * 3] = dr
+      c[idx * 3 + 1] = dg
+      c[idx * 3 + 2] = db
+      s[idx] = DORMANT_SIZE
+    }
+    this.touchedCount = 0
+    const mark = (idx: number): void => {
+      if (this.touchedCount < this.touched.length) this.touched[this.touchedCount++] = idx
     }
 
     for (const layer of trace.layers) {
@@ -160,12 +193,13 @@ export class Lattice {
       for (const hits of layer.suppressed) {
         for (const hit of hits) {
           const i = (base + hit.id) * 3
-          const a = Math.min(1, Math.abs(hit.delta) * 0.6) * w
-          const g = a * 0.95
+          const a = Math.min(1, (hit.act - 1.4) * 0.45) * w
+          const g = a * 0.20
           c[i] += PALETTE.suppressed[0] * g
           c[i + 1] += PALETTE.suppressed[1] * g
           c[i + 2] += PALETTE.suppressed[2] * g
-          s[base + hit.id] = Math.max(s[base + hit.id], 0.34 + a * 0.55)
+          s[base + hit.id] = Math.max(s[base + hit.id], 0.20 + a * 0.30)
+          mark(base + hit.id)
         }
       }
 
@@ -175,11 +209,12 @@ export class Lattice {
           const a = Math.min(1, (hit.act - 1.4) * 0.45) * w
           // Strong activations run toward amber; ordinary ones stay bone white.
           const heat = Math.min(1, Math.max(0, hit.act - 2.6) * 0.5)
-          const g = a * 1.5
+          const g = a * 0.26
           c[i] += (PALETTE.active[0] * (1 - heat) + PALETTE.peak[0] * heat) * g
           c[i + 1] += (PALETTE.active[1] * (1 - heat) + PALETTE.peak[1] * heat) * g
           c[i + 2] += (PALETTE.active[2] * (1 - heat) + PALETTE.peak[2] * heat) * g
-          s[base + hit.id] = Math.max(s[base + hit.id], 0.5 + a * 1.6)
+          s[base + hit.id] = Math.max(s[base + hit.id], 0.22 + a * 0.42)
+          mark(base + hit.id)
         }
       }
     }
