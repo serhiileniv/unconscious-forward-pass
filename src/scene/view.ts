@@ -75,6 +75,26 @@ export class View {
     this.scene.add(this.rings.lines, this.lattice.points, this.streams.lines, this.arcs.lines, this.plans)
   }
 
+  /**
+   * Park the camera on an explicit orbit position.
+   *
+   * Recording runs far slower than real time, so the ambient drift — which
+   * advances per update call, not per simulated second — would spin wildly across
+   * a capture. Driving the orbit from the frame index instead keeps the move
+   * exactly as fast as the finished video says it is.
+   */
+  setCamera(azimuth: number, elevation: number, distance: number): void {
+    this.controls.autoRotate = false
+    this.controls.enableDamping = false
+    const t = this.controls.target
+    this.camera.position.set(
+      t.x + distance * Math.cos(elevation) * Math.sin(azimuth),
+      t.y + distance * Math.sin(elevation),
+      t.z + distance * Math.cos(elevation) * Math.cos(azimuth),
+    )
+    this.camera.lookAt(t)
+  }
+
   setRun(run: Run): void {
     this.run = run
     this.currentStep = -1

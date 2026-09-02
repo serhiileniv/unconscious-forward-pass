@@ -1,0 +1,124 @@
+/**
+ * Frame-exact recorder.
+ *
+ * Screen-grabbing this page would capture whatever framerate the machine managed;
+ * instead each frame is rendered at an explicit simulated time and an explicit
+ * camera position, so the finished video plays at exactly the speed it claims to
+ * and the camera move is the same every run.
+ *
+ *   node tools/record.mjs <url> <outDir> [seconds] [fps] [width] [height]
+ */
+import { spawn } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const [url, outDir, secs = '30', fps = '30', W = '1600', H = '900'] = process.argv.slice(2)
+const SECONDS = Number(secs)
+const FPS = Number(fps)
+const TOTAL = Math.round(SECONDS * FPS)
+const WORDS = 12 // 12 x 2600ms per pass ≈ 31s of material for a 30s cut
+
+mkdirSync(outDir, { recursive: true })
+
+const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
+  '--headless=new',
+  '--disable-gpu',
+  '--enable-unsafe-swiftshader',
+  '--hide-scrollbars',
+  `--window-size=${W},${H}`,
+  '--force-device-scale-factor=1',
+  '--remote-debugging-port=9333',
+  `--user-data-dir=${process.env.TMPDIR || '/tmp'}/cdp-record-profile`,
+  'about:blank',
+], { stdio: 'ignore' })
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function targetUrl() {
+  for (let i = 0; i < 80; i++) {
+    try {
+      const list = await (await fetch('http://127.0.0.1:9333/json/list')).json()
+      const page = list.find((t) => t.type === 'page')
+      if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl
+    } catch {}
+    await sleep(250)
+  }
+  throw new Error('chrome did not come up')
+}
+
+const ws = new WebSocket(await targetUrl())
+await new Promise((r) => ws.addEventListener('open', r, { once: true }))
+
+let id = 0
+const pending = new Map()
+ws.addEventListener('message', (ev) => {
+  const m = JSON.parse(ev.data)
+  if (!m.id || !pending.has(m.id)) return
+  const { resolve, reject } = pending.get(m.id)
+  pending.delete(m.id)
+  m.error ? reject(new Error(JSON.stringify(m.error))) : resolve(m.result)
+})
+const send = (method, params = {}) =>
+  new Promise((resolve, reject) => {
+    const n = ++id
+    pending.set(n, { resolve, reject })
+    ws.send(JSON.stringify({ id: n, method, params }))
+  })
+const evaluate = (expression) =>
+  send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }).then((r) => r.result?.value)
+
+await send('Runtime.enable')
+await send('Page.enable')
+await send('Page.navigate', { url })
+
+// Wait for the model build to finish and the hooks to appear.
+for (let i = 0; i < 120; i++) {
+  if (await evaluate('!!window.__uc')) break
+  await sleep(500)
+}
+
+// Longer continuation, and a clean frame: the controls and transport are chrome,
+// not content, and they would date the video the moment the UI changes.
+await evaluate(`(() => {
+  const steps = document.getElementById('steps')
+  steps.value = '${WORDS}'
+  steps.dispatchEvent(new Event('input', { bubbles: true }))
+  document.getElementById('run').click()
+  return true
+})()`)
+await sleep(2500)
+await evaluate(`(() => {
+  for (const id of ['panel', 'panel-toggle', 'transport']) {
+    const el = document.getElementById(id)
+    if (el) el.style.display = 'none'
+  }
+  document.getElementById('masthead').style.left = '32px'
+  return true
+})()`)
+
+const duration = await evaluate('window.__uc.duration()')
+console.log(`run is ${(duration / 1000).toFixed(1)}s; capturing ${TOTAL} frames at ${FPS}fps`)
+
+const started = Date.now()
+for (let i = 0; i < TOTAL; i++) {
+  const u = i / (TOTAL - 1)
+  const ms = u * (duration - 1)
+  // Side-on rather than down the barrel: the corridor spans the frame and the
+  // lit slab travels across it, instead of sitting in one corner while
+  // three-quarters of the shot stays empty. Slow rise, slow push in.
+  const azimuth = 0.78 + 0.40 * u
+  const elevation = 0.17 + 0.14 * (0.5 - 0.5 * Math.cos(u * Math.PI * 2))
+  const distance = 44 - 8 * u
+  await evaluate(`window.__uc.capture(${ms}, ${azimuth}, ${elevation}, ${distance})`)
+  const shot = await send('Page.captureScreenshot', { format: 'png' })
+  writeFileSync(join(outDir, `f${String(i).padStart(4, '0')}.png`), Buffer.from(shot.data, 'base64'))
+  if (i % 30 === 0 || i === TOTAL - 1) {
+    const rate = (i + 1) / ((Date.now() - started) / 1000)
+    console.log(`  ${i + 1}/${TOTAL}  ${rate.toFixed(1)} fps  eta ${Math.round((TOTAL - i - 1) / rate)}s`)
+  }
+}
+
+ws.close()
+chrome.kill()
+console.log('done')
+process.exit(0)

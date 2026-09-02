@@ -54,6 +54,7 @@ let speed = 1
 let position = 0
 let last = performance.now()
 let renderedWords = -1
+let frameWaiters: (() => void)[] = []
 
 const show: RenderState['show'] = {
   features: true,
@@ -144,6 +145,12 @@ function frame(now: number): void {
 
   view.render({ step, layerF, headFilter, show })
   updateHud(step, t, sweepT, layerF)
+
+  if (frameWaiters.length) {
+    const waiting = frameWaiters
+    frameWaiters = []
+    for (const resolve of waiting) resolve()
+  }
 
   els.scrub.value = String(Math.round((position / total) * 1000))
   requestAnimationFrame(frame)
@@ -336,7 +343,13 @@ function escapeHtml(s: string): string {
  */
 declare global {
   interface Window {
-    __uc?: { at(step: number, frac: number): void; pause(): void; play(): void }
+    __uc?: {
+      at(step: number, frac: number): void
+      pause(): void
+      play(): void
+      duration(): number
+      capture(ms: number, azimuth: number, elevation: number, distance: number): Promise<void>
+    }
   }
 }
 window.__uc = {
@@ -352,6 +365,16 @@ window.__uc = {
   play() {
     playing = true
     setPlayLabel()
+  },
+  duration() {
+    return run.steps.length * STEP_MS
+  },
+  /** Render one exact instant from one exact camera, and resolve once it is on screen. */
+  capture(ms, azimuth, elevation, distance) {
+    playing = false
+    position = ms
+    view.setCamera(azimuth, elevation, distance)
+    return new Promise<void>((resolve) => frameWaiters.push(resolve))
   },
 }
 

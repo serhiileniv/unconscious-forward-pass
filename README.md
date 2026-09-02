@@ -87,3 +87,14 @@ node tools/shot.mjs http://localhost:4173/ shot.png 7000 'window.__uc.at(3, 0.45
 attention rows sum to one. `tools/shot.mjs` drives headless Chrome over the
 DevTools protocol — Chrome's `--virtual-time-budget` never fires on a page with a
 permanent animation loop, which this is.
+
+### Recording
+
+```sh
+node tools/record.mjs http://localhost:5173/ frames 30 30 1600 900
+ffmpeg -framerate 30 -i frames/f%04d.png -c:v libx264 -pix_fmt yuv420p -crf 18 out.mp4
+```
+
+Frames are rendered at explicit simulated times and explicit camera positions
+rather than screen-grabbed, so the cut plays at the speed it claims to and the
+camera move is identical every run.
