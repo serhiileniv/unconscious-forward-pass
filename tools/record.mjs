@@ -17,13 +17,24 @@ const SECONDS = Number(secs)
 const FPS = Number(fps)
 const TOTAL = Math.round(SECONDS * FPS)
 const WORDS = 12 // 12 x 2600ms per pass ≈ 31s of material for a 30s cut
+// Indirect object identification: the canonical interpretability probe, and one
+// of the few things GPT-2 124M reliably gets right. A low temperature keeps it
+// on its own best guess, so the layers and the emitted word tell one story.
+const PROMPT = process.env.PROMPT ?? 'When Mary and John went to the store, John gave a drink to'
+const TEMP = process.env.TEMP ?? '0.3'
 
 mkdirSync(outDir, { recursive: true })
 
+// SwiftShader rasterises hundreds of thousands of additively blended points on
+// the CPU, at about 1 fps. Metal does the same work on the GPU. SOFTWARE=1 falls
+// back if the hardware path misbehaves on a given machine.
+const gpuFlags = process.env.SOFTWARE
+  ? ['--disable-gpu', '--enable-unsafe-swiftshader']
+  : ['--use-angle=metal', '--ignore-gpu-blocklist', '--enable-gpu-rasterization']
+
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
   '--headless=new',
-  '--disable-gpu',
-  '--enable-unsafe-swiftshader',
+  ...gpuFlags,
   '--hide-scrollbars',
   `--window-size=${W},${H}`,
   '--force-device-scale-factor=1',
@@ -81,9 +92,14 @@ for (let i = 0; i < 260; i++) {
 // Longer continuation, and a clean frame: the controls and transport are chrome,
 // not content, and they would date the video the moment the UI changes.
 await evaluate(`(() => {
-  const steps = document.getElementById('steps')
-  steps.value = '${WORDS}'
-  steps.dispatchEvent(new Event('input', { bubbles: true }))
+  const set = (id, v) => {
+    const el = document.getElementById(id)
+    el.value = v
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  set('steps', '${WORDS}')
+  set('temp', '${TEMP}')
+  document.getElementById('prompt').value = ${JSON.stringify(PROMPT)}
   document.getElementById('run').click()
   return true
 })()`)

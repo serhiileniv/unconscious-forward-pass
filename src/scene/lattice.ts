@@ -13,7 +13,12 @@ export const STACK_DEPTH = 34
 export function layerGap(nLayers: number): number {
   return STACK_DEPTH / Math.max(1, nLayers - 1)
 }
-export const TOKEN_GAP = 1.7
+/**
+ * Tokens occupy a fixed width however many there are, for the same reason the
+ * stack occupies a fixed depth: a 26-token context would otherwise sprawl wider
+ * than the model is deep and pull the filaments out of frame.
+ */
+export const TOKEN_SPAN = 21
 export const CLOUD_RADIUS = 13
 /** Size of a point that no layer has moved. */
 const DORMANT_SIZE = 0.13
@@ -23,7 +28,7 @@ export function layerZ(layer: number, nLayers: number): number {
 }
 
 export function tokenX(pos: number, T: number): number {
-  return (pos - (T - 1) / 2) * TOKEN_GAP
+  return (pos - (T - 1) / 2) * (TOKEN_SPAN / Math.max(1, T - 1))
 }
 
 /**
@@ -209,7 +214,7 @@ export class Lattice {
           const a = Math.min(1, (hit.act - 1.4) * 0.45) * w
           // Strong activations run toward amber; ordinary ones stay bone white.
           const heat = Math.min(1, Math.max(0, hit.act - 2.6) * 0.5)
-          const g = a * 0.26
+          const g = a * 0.21
           c[i] += (PALETTE.active[0] * (1 - heat) + PALETTE.peak[0] * heat) * g
           c[i + 1] += (PALETTE.active[1] * (1 - heat) + PALETTE.peak[1] * heat) * g
           c[i + 2] += (PALETTE.active[2] * (1 - heat) + PALETTE.peak[2] * heat) * g
