@@ -73,6 +73,7 @@ let frameWaiters: (() => void)[] = []
 
 const show: RenderState['show'] = {
   features: true,
+  synapses: true,
   attention: true,
   streams: true,
   labels: true,
@@ -135,12 +136,19 @@ async function boot(): Promise<void> {
   // limits rather than letting the viewer read structure into a 3D shadow of a
   // 896-dimensional space.
   const f = model.fidelity
-  els.fidelityNote.innerHTML =
-    `Those are 3 of ${model.cfg.nEmbd} dimensions, holding <b>${(f.variance * 100).toFixed(1)}%</b> of the ` +
-    `variance, with drawn distances correlating to the real ones at <b>r = ${f.distance.toFixed(2)}</b>. ` +
-    `So proximity in the cloud is a weak hint, not evidence: points near each other are somewhat more ` +
-    `likely to be related, and often are not. Depth, colour and brightness carry the exact quantities; ` +
-    `the left-right and up-down placement does not.`
+  const layout = model.layout
+  els.fidelityNote.innerHTML = layout
+    ? `Placement comes from a spectral embedding of the model's own nearest-neighbour graph. Of a ` +
+      `token's ten true nearest neighbours, <b>${(layout.preservation * 100).toFixed(0)}%</b> land within ` +
+      `the nearest 1% of the map, against 1% by chance, and neighbours are drawn at about two thirds the ` +
+      `distance of random pairs. Real, and weak: 50,257 points from ${model.cfg.nEmbd} dimensions cannot ` +
+      `keep more than that in three. Read regions, not adjacency. The <em>links</em> are exact — they are ` +
+      `the model's actual nearest neighbours, true wherever the two ends are drawn. Depth, colour and ` +
+      `brightness are exact.`
+    : `Those are 3 of ${model.cfg.nEmbd} dimensions, holding <b>${(f.variance * 100).toFixed(1)}%</b> of ` +
+      `the variance, with drawn distances correlating to the real ones at <b>r = ${f.distance.toFixed(2)}</b>. ` +
+      `Proximity is a weak hint, not evidence. Depth, colour and brightness carry the exact quantities; ` +
+      `left-right and up-down placement does not.`
 
   wire()
   buildPresets()
@@ -374,6 +382,7 @@ function wire(): void {
 
   const toggles: [string, keyof RenderState['show']][] = [
     ['t-features', 'features'],
+    ['t-synapses', 'synapses'],
     ['t-attention', 'attention'],
     ['t-streams', 'streams'],
     ['t-labels', 'labels'],

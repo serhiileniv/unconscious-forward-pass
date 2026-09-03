@@ -44,6 +44,8 @@ export function tokenX(pos: number, T: number): number {
  */
 export class Lattice {
   readonly points: THREE.Points
+  /** The drawn position of every point, indexed layer * nFeatures + token. */
+  readonly positions: Float32Array
   /** 95th-percentile radius of the cloud, so other objects can be sized to it. */
   readonly radius: number
   private readonly colors: Float32Array
@@ -68,12 +70,28 @@ export class Lattice {
     this.nFeatures = nFeatures
     const total = nFeatures * nLayers
 
-    const flat = model.lensPos
+    // Prefer the precomputed semantic map. Its positions come from a spectral
+    // embedding of the model's own nearest-neighbour graph, which places true
+    // neighbours at about half the distance of random pairs — weak, but far
+    // better than the linear projection it replaces, and the fallback when the
+    // map has not been generated.
+    const flat = new Float32Array(nFeatures * 3)
+    if (model.layout) {
+      for (let f = 0; f < nFeatures; f++) {
+        const src = model.lensIds[f] * 3
+        flat[f * 3] = model.layout.pos[src]
+        flat[f * 3 + 1] = model.layout.pos[src + 1]
+        flat[f * 3 + 2] = model.layout.pos[src + 2]
+      }
+    } else {
+      flat.set(model.lensPos.subarray(0, nFeatures * 3))
+    }
     let sd = 0
     for (let i = 0; i < flat.length; i++) sd += flat[i] * flat[i]
     sd = Math.sqrt(sd / flat.length) || 1
 
     const positions = new Float32Array(total * 3)
+    this.positions = positions
     this.colors = new Float32Array(total * 3)
     this.sizes = new Float32Array(total)
     const [d0, d1, d2] = PALETTE.dormant

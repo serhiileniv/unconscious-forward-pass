@@ -1,6 +1,7 @@
 import { type BPETokenizer, loadTokenizerJson } from './bpe'
 import type { LM, LMConfig, LMState, LoadProgress } from './lm'
 import { dot, pca3, projectionFidelity, softmax } from './math'
+import { type Layout, loadLayout } from './layout'
 import { fetchWithProgress, Safetensors } from './safetensors'
 
 /**
@@ -77,6 +78,7 @@ export class LlamaLM implements LM {
   readonly lensPos: Float32Array
   readonly projector: Float32Array
   readonly fidelity: { variance: number; distance: number }
+  readonly layout: Layout | null = null
   readonly shape: Shape
   readonly layers: Layer[]
   readonly embed: Float32Array
@@ -165,7 +167,9 @@ export class LlamaLM implements LM {
       onProgress?.('weights', loaded / total),
     )
     onProgress?.('unpacking', 1)
-    return new LlamaLM(shape, name, tok, new Safetensors(buf), nLens, 20260903)
+    const model = new LlamaLM(shape, name, tok, new Safetensors(buf), nLens, 20260903)
+    ;(model as { layout: Layout | null }).layout = await loadLayout(baseUrl)
+    return model
   }
 
   newState(maxT: number): LMState {

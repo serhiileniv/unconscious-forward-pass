@@ -7,3 +7,5 @@ artifact/
 public/model/
 frames/
 *.mp4
+public/model/*/layout.bin
+public/model/*/layout.json

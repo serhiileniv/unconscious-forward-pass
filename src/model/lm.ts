@@ -1,4 +1,5 @@
 import type { BPETokenizer } from './bpe'
+import type { Layout } from './layout'
 
 /**
  * What the renderer needs from a language model, regardless of architecture.
@@ -37,6 +38,12 @@ export interface LM {
    * rather than letting the cloud imply a fidelity it does not have.
    */
   readonly fidelity: { variance: number; distance: number }
+  /**
+   * The precomputed semantic map, when one has been generated. Its positions are
+   * a weak summary of a 768-dimensional space, but its edges are the model's
+   * real nearest neighbours and are exact however the points are placed.
+   */
+  readonly layout: Layout | null
   newState(maxT: number): LMState
 }
 

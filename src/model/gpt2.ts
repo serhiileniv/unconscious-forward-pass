@@ -1,5 +1,6 @@
 import { BPETokenizer, loadTokenizer } from './bpe'
 import { dot, gelu, layerNormAffine, pca3, projectionFidelity, softmax } from './math'
+import { type Layout, loadLayout } from './layout'
 import { fetchWithProgress, Safetensors } from './safetensors'
 
 export interface GPT2Config {
@@ -64,6 +65,7 @@ export class GPT2 {
   /** nEmbd × 3 — the same projection the residual stream is drawn through. */
   readonly projector: Float32Array
   readonly fidelity: { variance: number; distance: number }
+  readonly layout: Layout | null = null
 
   private constructor(cfg: GPT2Config, tok: BPETokenizer, st: Safetensors, nLens: number, seed: number) {
     this.cfg = cfg
@@ -146,7 +148,9 @@ export class GPT2 {
       onProgress?.('weights', loaded / total),
     )
     onProgress?.('unpacking', 1)
-    return new GPT2(cfg, tok, new Safetensors(buf), nLens, 20260903)
+    const model = new GPT2(cfg, tok, new Safetensors(buf), nLens, 20260903)
+    ;(model as { layout: Layout | null }).layout = await loadLayout(baseUrl)
+    return model
   }
 
   newState(maxT: number): GPT2State {

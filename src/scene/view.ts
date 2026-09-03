@@ -8,12 +8,13 @@ import { Lattice, layerZ } from './lattice'
 import { Rings } from './rings'
 import { PALETTE } from './palette'
 import { Streams, streamPoint } from './streams'
+import { Synapses } from './synapses'
 
 export interface RenderState {
   step: number
   layerF: number
   headFilter: number
-  show: { features: boolean; attention: boolean; streams: boolean; labels: boolean; plans: boolean }
+  show: { features: boolean; synapses: boolean; attention: boolean; streams: boolean; labels: boolean; plans: boolean }
 }
 
 export class View {
@@ -25,6 +26,7 @@ export class View {
   private readonly streams: Streams
   private readonly arcs: Arcs
   private readonly rings: Rings
+  private readonly synapses: Synapses
   private readonly labels: Labels
   private readonly plans: THREE.LineSegments
   private readonly model: LM
@@ -61,6 +63,7 @@ export class View {
     this.streams = new Streams(MAX_CONTEXT, model.cfg.nLayer)
     this.arcs = new Arcs()
     this.rings = new Rings(model.cfg.nLayer, this.lattice.radius)
+    this.synapses = new Synapses(model, this.lattice.positions, model.lensIds.length)
     this.labels = new Labels(labelHost)
 
     this.plans = new THREE.LineSegments(
@@ -75,7 +78,7 @@ export class View {
     )
     this.plans.frustumCulled = false
 
-    this.scene.add(this.rings.lines, this.lattice.points, this.streams.lines, this.arcs.lines, this.plans)
+    this.scene.add(this.rings.lines, this.synapses.lines, this.lattice.points, this.streams.lines, this.arcs.lines, this.plans)
   }
 
   /**
@@ -133,6 +136,8 @@ export class View {
     this.plans.visible = state.show.plans
 
     this.rings.update(state.layerF)
+    this.synapses.lines.visible = state.show.synapses
+    if (state.show.synapses) this.synapses.update(trace, state.layerF, nLayers)
     if (state.show.features) this.lattice.update(trace, state.layerF)
     if (state.show.streams) this.streams.update(trace, state.layerF)
     if (state.show.attention) this.arcs.update(trace, state.layerF, nLayers, state.headFilter)
@@ -227,6 +232,7 @@ export class View {
   }
 
   dispose(): void {
+    this.synapses.dispose()
     this.rings.dispose()
     this.lattice.dispose()
     this.streams.dispose()

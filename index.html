@@ -49,6 +49,7 @@
       <section>
         <h2>show</h2>
         <label class="check"><input type="checkbox" id="t-features" checked /> <span>feature cloud</span></label>
+        <label class="check"><input type="checkbox" id="t-synapses" checked /> <span>neighbour links</span></label>
         <label class="check"><input type="checkbox" id="t-attention" checked /> <span>attention</span></label>
         <label class="check"><input type="checkbox" id="t-streams" checked /> <span>residual stream</span></label>
         <label class="check"><input type="checkbox" id="t-labels" checked /> <span>feature names</span></label>
@@ -67,6 +68,7 @@
           <li><i class="sw peak"></i> pushed hard</li>
           <li><i class="sw supp"></i> word this layer pushed <em>away</em> from</li>
           <li><i class="sw attn"></i> attention reaching backward</li>
+          <li><i class="sw active"></i> links to the words the model holds nearest</li>
           <li><i class="sw plan"></i> a word it writes several steps later</li>
         </ul>
       </section>
@@ -76,8 +78,9 @@
         <p class="note">
           The real published weights, running a real forward pass in your browser.
           Every token in the vocabulary is drawn, with no subset and no cap on how
-          many may light at once, each placed at its own row of the output head and
-          projected to 3D by PCA.
+          many may light at once, and placed by a spectral embedding of the model's
+          own nearest-neighbour graph — so weekdays sit with weekdays, digits with
+          digits, cities with cities.
         </p>
         <p class="note" id="fidelity-note"></p>
         <p class="note">
