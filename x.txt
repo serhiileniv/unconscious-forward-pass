@@ -1,40 +1,52 @@
-[1/6]
+[1/7]
 I asked Claude to show me its unconscious in 3D.
 
-It said it has no introspective access. Then it pointed at something real: in one forward pass a model moves every word's score, over and over, and one word comes out.
+It said it has no introspective access. Then it pointed at something real: in one forward pass a model changes the score of every word it knows, every layer, and one word comes out.
 
-So we built it. Qwen2.5 0.5B, real weights, in the browser.
+So we built it. Real weights, in the browser.
 
-[2/6]
-Every point is a real token, sitting at its own row of the model's output head. Two points are close when the model puts those two words close.
+[2/7]
+GPT-2 124M. All 50,257 tokens drawn, one point each, per layer. No subset, no top-k.
 
-A point lights when that layer pushed the model toward saying it. Warm = pushed toward. Violet = pushed away.
+A point lights when that layer pushed the model toward saying that word. Violet when it pushed away.
 
-[3/6]
-This is not a logit lens. It's an exact decomposition.
+One generated word = 603,084 score changes.
+
+[3/7]
+It's not a logit lens. It's an exact decomposition.
 
 The residual stream is a running sum and the output head is linear, so each layer's contribution to every word's score is exactly computable, and the parts sum to the model's real logits.
 
 Max abs error: 0.00e+0
 
-[4/6]
-"The Eiffel Tower is located in the city of" → " Paris" (54.4%)
+[4/7]
+On Qwen2.5 0.5B (?model=qwen), contribution to " Paris" for "…the city of":
 
-Contribution to " Paris":
 L19 +0.65
 L20 +5.73
 L21 +10.90
 L22 −3.86
 
-Layer 21 fires " French" " France" " Paris" " Louis" at once. Layer 22 then pushes " Paris" back down.
+Layer 21 fires " French" " France" " Paris" " Louis" together. Layer 22 then pushes " Paris" back down.
 
-[5/6]
-Why not the logit lens: on this model it disagrees with the real output at every layer before 20 of 24. KL 8–13, zero top-10 overlap, top tokens " rain", " sequ", " swe".
+[5/7]
+The thing I got wrong, and had to measure to find:
 
-It would have drawn twenty layers of noise as though it were thought.
+I'd claimed points near each other meant words the model puts near each other.
 
-[6/6]
-What it does not show: why a layer pushed as it did, or anything the output head can't see.
+Random 768→3 projection: keeps 0.3% of variance, distance correlation r=0.11.
+
+That's noise. The claim was false.
+
+[6/7]
+Worse: I'd added an r^0.62 radial warp because it looked better. It dropped fidelity to 0.08.
+
+Now top-3 PCA — 3.2%, r=0.33 — and the app prints both numbers at you.
+
+Depth, colour and brightness are exact. Left-right placement is a weak hint.
+
+[7/7]
+What it still doesn't show: why a layer pushed as it did, or anything the output head can't see.
 
 These aren't "the words in its mind". They're the exact amount each layer moved every word's score.
 

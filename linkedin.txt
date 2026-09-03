@@ -1,25 +1,22 @@
 I asked Claude to show me what its unconscious mind looks like, in 3D.
 
-It said it can't introspect. No access to its own weights, nothing to look inward at. Then it pointed at something I hadn't considered: in a single forward pass, a language model moves the score of every word in its vocabulary, layer after layer, and almost none of that reaches the page. One word comes out.
+It said it can't introspect. No access to its own weights, nothing to look inward at. Then it pointed at something I hadn't considered: in a single forward pass, a language model changes the score of every word it knows, at every layer, and almost none of that reaches the page. One word comes out.
 
 So we built it.
 
-Qwen2.5 0.5B Instruct, the real published weights, running its real forward pass in the browser. Every point is an actual token, placed at its own row of the model's output head. A point lights when that layer pushed the model toward saying that word, and turns violet when the layer pushed it away.
+GPT-2's real published weights, running a real forward pass in the browser. All 50,257 tokens are drawn, one point each, once per layer. No subset, no cap on how many can light at once. A point lights when that layer pushed the model toward saying that word, and turns violet when the layer pushed it away. One generated word is 603,084 score changes.
 
-What matters most here is that it's exact rather than illustrative.
+The method is a decomposition, not an estimate. The residual stream is a running sum and the output head is linear, so with the final norm's scale fixed, each layer's contribution to every word's score is exactly computable and the contributions add up to the model's real output. Verified: maximum absolute error 0.00e+0 against the actual logits.
 
-The residual stream is a running sum and the output head is linear. So with the final norm's scale fixed, each layer's contribution to every word's score is exactly computable, and the contributions add up to the model's real output. Verified: maximum absolute error 0.00e+0 against the actual logits.
+On the larger model (Qwen2.5 0.5B, one query parameter away), the prompt "The Eiffel Tower is located in the city of" gives contributions to " Paris" of +0.65 at layer 19, +5.73 at layer 20, +10.90 at layer 21, then −3.86 at layer 22. Layer 21 fires " French", " France", " Paris" and " Louis" together. Layer 22 pushes " Paris" back down while promoting " in", " and", " the".
 
-A worked example. Prompt: "The Eiffel Tower is located in the city of". The model says " Paris" at 54.4%.
+Now the part I'd rather report than hide.
 
-Contribution to " Paris", by layer:
-L19 +0.65 → L20 +5.73 → L21 +10.90 → L22 −3.86
+I had written in the interface that two points sit close together exactly when the model puts those words close together. Then I measured it. The random 768-to-3 projection I was using kept 0.3% of the variance and correlated with true pairwise distances at r = 0.11, which is noise. The claim was false. I had also added a radial warp because it filled the disc more evenly; it dropped fidelity to 0.08.
 
-Layer 21 fires " French" +12.9, " France" +11.6, " Paris" +10.9 and " Louis" +7.8 together. The France concept arrives in one layer. Then layer 22 pushes " Paris" back down while promoting " in", " and", " the".
+Both are gone. It uses top-3 PCA now, 3.2% and r = 0.33, and the app reports both numbers on screen. Depth, colour and brightness are exact. Left-right placement is a weak hint and now says so.
 
-I started with the logit lens, which is the better known technique, and dropped it. Measured on this model it disagrees with the real output at every layer before 20 of 24: KL between 8 and 13, zero overlap in the top ten, top tokens like " rain", " sequ", " swe". It would have rendered twenty layers of noise as though it were thought.
+A convincing picture of a model's interior is easy to make and hard to check. The checking is the work.
 
-What this does not show: why a layer pushed the way it did, or any internal state the output head cannot see. These are not "the words in the model's mind". They are the exact amount each layer moved every word's score.
-
-Code, and the script that checks the arithmetic:
+Code, and the scripts that measure it:
 github.com/serhiileniv/unconscious-forward-pass
