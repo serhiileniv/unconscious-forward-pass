@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { LM } from '../model/lm'
+import type { Lattice } from './lattice'
 import type { StepTrace } from '../model/trace'
 import { PALETTE } from './palette'
 
@@ -26,15 +27,13 @@ export class Synapses {
   private readonly positions: Float32Array
   private readonly colors: Float32Array
   private readonly model: LM
-  private readonly latticePos: Float32Array
-  private readonly nFeatures: number
+  private readonly lattice: Lattice
   private readonly indexOf: Map<number, number>
   private lastKey = -1
 
-  constructor(model: LM, latticePos: Float32Array, nFeatures: number) {
+  constructor(model: LM, lattice: Lattice) {
     this.model = model
-    this.latticePos = latticePos
-    this.nFeatures = nFeatures
+    this.lattice = lattice
     this.indexOf = new Map()
     model.lensIds.forEach((tokenId, i) => this.indexOf.set(tokenId, i))
 
@@ -81,8 +80,9 @@ export class Synapses {
     const layer = trace.layers[l]
     const hits = layer.features[trace.active] ?? []
     const down = layer.suppressed[trace.active] ?? []
-    const base = l * this.nFeatures
     const warm = PALETTE.active
+    const A = new THREE.Vector3()
+    const B = new THREE.Vector3()
     const cold = PALETTE.suppressed
 
     let v = 0
@@ -98,24 +98,10 @@ export class Synapses {
           if (nb < 0 || nb === tokenId || sim < 0.25) continue
           const dst = this.indexOf.get(nb)
           if (dst === undefined) continue
-          // A neighbour drawn far away says more about the projection than about
-          // the model, and a few such edges dominate the frame. Skip them.
-          const ax = (base + src.id) * 3
-          const bx = (base + dst) * 3
-          const far =
-            (this.latticePos[ax] - this.latticePos[bx]) ** 2 +
-            (this.latticePos[ax + 1] - this.latticePos[bx + 1]) ** 2 +
-            (this.latticePos[ax + 2] - this.latticePos[bx + 2]) ** 2
-          if (far > 36) continue
-          const a = (base + src.id) * 3
-          const b = (base + dst) * 3
-          this.positions.set(
-            [
-              this.latticePos[a], this.latticePos[a + 1], this.latticePos[a + 2],
-              this.latticePos[b], this.latticePos[b + 1], this.latticePos[b + 2],
-            ],
-            v * 6,
-          )
+          // Both ends must be words this layer actually moved, otherwise the
+          // link would run to a point that is not on screen for a reason.
+          if (!this.lattice.pointAt(src.id, l, A) || !this.lattice.pointAt(dst, l, B)) continue
+          this.positions.set([A.x, A.y, A.z, B.x, B.y, B.z], v * 6)
           // Brighter at the pushed end, dimmer at the neighbour, so the edge
           // reads as reaching outward rather than as a static link.
           const g = strength * sim * 0.16

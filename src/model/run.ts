@@ -37,7 +37,7 @@ export const MAX_CONTEXT = 48
  * tokens may clear it: if a layer moves forty thousand scores hard, forty
  * thousand points light.
  */
-const Z_PUSH = 2.2
+export const Z_PUSH = 2.2
 
 export interface Anticipation {
   step: number

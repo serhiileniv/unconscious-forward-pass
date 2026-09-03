@@ -66,7 +66,7 @@ export class View {
     this.streams = new Streams(MAX_CONTEXT, model.cfg.nLayer)
     this.arcs = new Arcs()
     this.rings = new Rings(model.cfg.nLayer, this.lattice.radius)
-    this.synapses = new Synapses(model, this.lattice.positions, model.lensIds.length)
+    this.synapses = new Synapses(model, this.lattice)
     this.labels = new Labels(labelHost)
 
     this.plans = new THREE.LineSegments(
@@ -127,10 +127,10 @@ export class View {
     if (!trace) return
     const nLayers = this.model.cfg.nLayer
 
-    if (state.step !== this.currentStep) {
+    const stepChanged = state.step !== this.currentStep
+    if (stepChanged) {
       this.currentStep = state.step
       this.streams.setTrace(trace, nLayers)
-      this.buildPlans(state.step)
     }
 
     this.lattice.points.visible = state.show.features
@@ -138,10 +138,13 @@ export class View {
     this.arcs.lines.visible = state.show.attention
     this.plans.visible = state.show.plans
 
-    this.rings.update(state.layerF, this.layerWork(trace))
+    // The cloud first: the rings are sized from what it just laid out.
+    this.lattice.update(trace, state.layerF, state.selected)
+    this.rings.update(state.layerF, this.layerWork(trace), this.lattice.layerRadius)
     this.synapses.lines.visible = state.show.synapses
     if (state.show.synapses) this.synapses.update(trace, state.layerF, nLayers)
-    if (state.show.features) this.lattice.update(trace, state.layerF, state.selected)
+    // Positions exist only once the cloud has been laid out for this frame.
+    if (state.show.plans) this.buildPlans(state.step)
     if (state.show.streams) this.streams.update(trace, state.layerF)
     if (state.show.attention) this.arcs.update(trace, state.layerF, nLayers, state.headFilter)
 
@@ -177,7 +180,7 @@ export class View {
     const pos: number[] = []
     const v = new THREE.Vector3()
     for (const a of this.run.anticipations.filter((x) => x.step === step)) {
-      this.featurePoint(a.featureId, a.layer, v)
+      if (!this.featurePoint(a.featureId, a.layer, v)) continue
       pos.push(v.x, v.y, v.z, v.x, v.y + 1.6, v.z)
     }
     this.plans.geometry.dispose()
@@ -202,7 +205,7 @@ export class View {
       const phase = 0.42 + 0.58 * (1 - Math.min(1, Math.abs(state.layerF - l) * 0.9))
       for (let i = 0; i < Math.min(3, hits.length); i++) {
         const hit = hits[i]
-        this.featurePoint(hit.id, l, v)
+        if (!this.featurePoint(hit.id, l, v)) continue
         out.push({
           id: `f${hit.id}`,
           text: this.model.lensPieces[hit.id].trim(),
@@ -214,7 +217,7 @@ export class View {
       const down = layer.suppressed[pos] ?? []
       for (let i = 0; i < Math.min(2, down.length); i++) {
         const hit = down[i]
-        this.featurePoint(hit.id, l, v)
+        if (!this.featurePoint(hit.id, l, v)) continue
         out.push({
           id: `s${hit.id}`,
           text: this.model.lensPieces[hit.id].trim(),
@@ -228,8 +231,7 @@ export class View {
 
     if (state.selected !== null) {
       const l = Math.max(0, Math.min(nLayers - 1, Math.round(state.layerF)))
-      this.featurePoint(state.selected, l, v)
-      out.push({
+      if (this.featurePoint(state.selected, l, v)) out.push({
         id: 'selected',
         text: this.model.lensPieces[state.selected].trim() || this.model.lensPieces[state.selected],
         sub: 'following',
@@ -241,7 +243,7 @@ export class View {
 
     if (state.show.plans) {
       for (const a of this.run.anticipations.filter((x) => x.step === state.step)) {
-        this.featurePoint(a.featureId, a.layer, v)
+        if (!this.featurePoint(a.featureId, a.layer, v)) continue
         out.push({
           id: `a${a.featureId}-${a.targetStep}`,
           text: a.targetWord.trim(),
@@ -255,10 +257,9 @@ export class View {
     return out
   }
 
-  private featurePoint(feature: number, layer: number, out: THREE.Vector3): void {
-    const attr = this.lattice.points.geometry.getAttribute('position') as THREE.BufferAttribute
-    const idx = layer * this.model.lensIds.length + feature
-    out.set(attr.getX(idx), attr.getY(idx), attr.getZ(idx))
+  /** Where a token was drawn at a layer. False when that layer did not move it. */
+  private featurePoint(feature: number, layer: number, out: THREE.Vector3): boolean {
+    return this.lattice.pointAt(feature, layer, out)
   }
 
   dispose(): void {

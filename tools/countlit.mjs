@@ -1,5 +1,5 @@
-// tools/measure-layout.ts
-import { readFileSync, writeFileSync } from "node:fs";
+// tools/countlit.ts
+import { readFileSync } from "node:fs";
 
 // src/model/bpe.ts
 function bytesToUnicode() {
@@ -34,9 +34,9 @@ var BPETokenizer = class {
   constructor(vocabJson, merges, pattern = GPT2_PATTERN, added = []) {
     this.pattern = pattern;
     this.encoder = new Map(Object.entries(vocabJson));
-    for (const t of added) {
-      this.encoder.set(t.content, t.id);
-      this.special.add(t.id);
+    for (const t2 of added) {
+      this.encoder.set(t2.content, t2.id);
+      this.special.add(t2.id);
     }
     let maxId = 0;
     for (const id of this.encoder.values()) if (id > maxId) maxId = id;
@@ -119,10 +119,10 @@ function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
     a = a + 1831565813 >>> 0;
-    let t = a;
-    t = Math.imul(t ^ t >>> 15, t | 1);
-    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    let t2 = a;
+    t2 = Math.imul(t2 ^ t2 >>> 15, t2 | 1);
+    t2 ^= t2 + Math.imul(t2 ^ t2 >>> 7, t2 | 61);
+    return ((t2 ^ t2 >>> 14) >>> 0) / 4294967296;
   };
 }
 function softmax(v, off = 0, len = v.length - off) {
@@ -174,30 +174,30 @@ function layerNormAffine(v, off, d, gamma, beta, eps, out, outOff) {
 function pca3(rows, n, d, iterations = 24) {
   const mean = new Float32Array(d);
   for (let i = 0; i < n; i++) for (let k = 0; k < d; k++) mean[k] += rows[i * d + k] / n;
-  const rand2 = mulberry32(1);
+  const rand = mulberry32(1);
   const z = new Float32Array(d * 3);
-  for (let i = 0; i < z.length; i++) z[i] = rand2() * 2 - 1;
+  for (let i = 0; i < z.length; i++) z[i] = rand() * 2 - 1;
   orthonormalize(z, d, 3);
-  const t = new Float32Array(n * 3);
+  const t2 = new Float32Array(n * 3);
   for (let it = 0; it < iterations; it++) {
-    t.fill(0);
+    t2.fill(0);
     for (let i = 0; i < n; i++) {
       const off = i * d;
       for (let k = 0; k < d; k++) {
         const v = rows[off + k] - mean[k];
         if (v === 0) continue;
         const zo = k * 3;
-        t[i * 3] += v * z[zo];
-        t[i * 3 + 1] += v * z[zo + 1];
-        t[i * 3 + 2] += v * z[zo + 2];
+        t2[i * 3] += v * z[zo];
+        t2[i * 3 + 1] += v * z[zo + 1];
+        t2[i * 3 + 2] += v * z[zo + 2];
       }
     }
     z.fill(0);
     for (let i = 0; i < n; i++) {
       const off = i * d;
-      const a = t[i * 3];
-      const b = t[i * 3 + 1];
-      const c = t[i * 3 + 2];
+      const a = t2[i * 3];
+      const b = t2[i * 3 + 1];
+      const c = t2[i * 3 + 2];
       for (let k = 0; k < d; k++) {
         const v = rows[off + k] - mean[k];
         if (v === 0) continue;
@@ -216,12 +216,12 @@ function projectionFidelity(rows, projected, mean, n, d, samples = 3e3) {
   for (let i = 0; i < n; i++) for (let k = 0; k < d; k++) total += (rows[i * d + k] - mean[k]) ** 2;
   let kept = 0;
   for (let i = 0; i < projected.length; i++) kept += projected[i] * projected[i];
-  const rand2 = mulberry32(99);
+  const rand = mulberry32(99);
   const hi = [];
   const lo = [];
   for (let s = 0; s < samples; s++) {
-    const i = Math.floor(rand2() * n);
-    const j = Math.floor(rand2() * n);
+    const i = Math.floor(rand() * n);
+    const j = Math.floor(rand() * n);
     if (i === j) continue;
     let h = 0;
     for (let k = 0; k < d; k++) h += (rows[i * d + k] - rows[j * d + k]) ** 2;
@@ -257,23 +257,23 @@ async function loadLayout(baseUrl) {
   } catch {
     return null;
   }
-  const head2 = new Int32Array(buf, 0, 2);
-  const n = head2[0];
-  const k = head2[1];
+  const head = new Int32Array(buf, 0, 2);
+  const n = head[0];
+  const k = head[1];
   let off = 8;
-  const pos2 = new Float32Array(buf.slice(off, off + n * 3 * 4));
+  const pos = new Float32Array(buf.slice(off, off + n * 3 * 4));
   off += n * 3 * 4;
   const nbr = new Int32Array(buf.slice(off, off + n * k * 4));
   off += n * k * 4;
   const sim = new Float32Array(buf.slice(off, off + n * k * 4));
-  let preservation2 = 0;
+  let preservation = 0;
   try {
     const meta = await fetch(`${baseUrl}/layout.json`).then((r) => r.ok ? r.json() : null);
-    preservation2 = meta?.preservation ?? 0;
+    preservation = meta?.preservation ?? 0;
   } catch {
-    preservation2 = 0;
+    preservation = 0;
   }
-  return { n, k, pos: pos2, nbr, sim, preservation: preservation2 };
+  return { n, k, pos, nbr, sim, preservation };
 }
 
 // src/model/safetensors.ts
@@ -465,14 +465,14 @@ var GPT2 = class _GPT2 {
     onProgress?.("tokenizer", 0);
     const tok = await loadTokenizer(baseUrl);
     onProgress?.("config", 0);
-    const raw2 = await fetch(`${baseUrl}/config.json`).then((r) => r.json());
+    const raw = await fetch(`${baseUrl}/config.json`).then((r) => r.json());
     const cfg = {
-      nLayer: raw2.n_layer,
-      nHead: raw2.n_head,
-      nEmbd: raw2.n_embd,
-      nCtx: raw2.n_ctx,
-      vocabSize: raw2.vocab_size,
-      eps: raw2.layer_norm_epsilon ?? 1e-5
+      nLayer: raw.n_layer,
+      nHead: raw.n_head,
+      nEmbd: raw.n_embd,
+      nCtx: raw.n_ctx,
+      vocabSize: raw.vocab_size,
+      eps: raw.layer_norm_epsilon ?? 1e-5
     };
     const buf = await fetchWithProgress(
       `${baseUrl}/model.safetensors`,
@@ -543,11 +543,11 @@ var GPT2State = class {
     const m2 = this.model;
     const { nLayer, nEmbd, nHead, eps } = m2.cfg;
     const dHead = nEmbd / nHead;
-    const pos2 = this.t;
-    if (pos2 >= this.maxT) throw new Error("context full");
+    const pos = this.t;
+    if (pos >= this.maxT) throw new Error("context full");
     this.ids.push(tokenId);
     const x = new Float32Array(nEmbd);
-    for (let i = 0; i < nEmbd; i++) x[i] = m2.wte[tokenId * nEmbd + i] + m2.wpe[pos2 * nEmbd + i];
+    for (let i = 0; i < nEmbd; i++) x[i] = m2.wte[tokenId * nEmbd + i] + m2.wpe[pos * nEmbd + i];
     const h = new Float32Array(nEmbd);
     const qkv = new Float32Array(3 * nEmbd);
     const ctx = new Float32Array(nEmbd);
@@ -559,18 +559,18 @@ var GPT2State = class {
       const before = x.slice();
       layerNormAffine(x, 0, nEmbd, b.ln1g, b.ln1b, eps, h, 0);
       vecmat(h, 0, b.attnW, b.attnB, nEmbd, 3 * nEmbd, qkv);
-      this.kCache[l].set(qkv.subarray(nEmbd, 2 * nEmbd), pos2 * nEmbd);
-      this.vCache[l].set(qkv.subarray(2 * nEmbd, 3 * nEmbd), pos2 * nEmbd);
+      this.kCache[l].set(qkv.subarray(nEmbd, 2 * nEmbd), pos * nEmbd);
+      this.vCache[l].set(qkv.subarray(2 * nEmbd, 3 * nEmbd), pos * nEmbd);
       ctx.fill(0);
-      const row = new Float32Array(pos2 + 1);
+      const row = new Float32Array(pos + 1);
       for (let hd = 0; hd < nHead; hd++) {
         const off = hd * dHead;
-        for (let j = 0; j <= pos2; j++) {
+        for (let j = 0; j <= pos; j++) {
           row[j] = dot(qkv, off, this.kCache[l], j * nEmbd + off, dHead) * scale;
         }
-        softmax(row, 0, pos2 + 1);
-        const dst = hd * this.maxT * this.maxT + pos2 * this.maxT;
-        for (let j = 0; j <= pos2; j++) {
+        softmax(row, 0, pos + 1);
+        const dst = hd * this.maxT * this.maxT + pos * this.maxT;
+        for (let j = 0; j <= pos; j++) {
           this.attn[l][dst + j] = row[j];
           const w = row[j];
           if (w < 1e-6) continue;
@@ -584,21 +584,21 @@ var GPT2State = class {
       for (let i = 0; i < ff.length; i++) ff[i] = gelu(ff[i]);
       vecmat(ff, 0, b.mlpProjW, b.mlpProjB, 4 * nEmbd, nEmbd, tmp);
       for (let i = 0; i < nEmbd; i++) x[i] += tmp[i];
-      this.hidden[l].set(x, pos2 * nEmbd);
+      this.hidden[l].set(x, pos * nEmbd);
       let rn = 0;
       let wn = 0;
       for (let i = 0; i < nEmbd; i++) {
         rn += x[i] * x[i];
         wn += (x[i] - before[i]) ** 2;
       }
-      this.residualNorm[l][pos2] = Math.sqrt(rn);
-      this.writeNorm[l][pos2] = Math.sqrt(wn);
+      this.residualNorm[l][pos] = Math.sqrt(rn);
+      this.writeNorm[l][pos] = Math.sqrt(wn);
       for (let c = 0; c < 3; c++) {
         let s = 0;
         for (let i = 0; i < nEmbd; i++) s += x[i] * m2.projector[i * 3 + c];
-        this.proj[l][pos2 * 3 + c] = s;
+        this.proj[l][pos * 3 + c] = s;
       }
-      this.lensAt(l, pos2);
+      this.lensAt(l, pos);
     }
     layerNormAffine(x, 0, nEmbd, m2.lnFg, m2.lnFb, eps, h, 0);
     const logits = new Float32Array(m2.cfg.vocabSize);
@@ -625,14 +625,14 @@ var GPT2State = class {
    * over standardised scores is a different distribution and would make the
    * agreement measurement meaningless.
    */
-  lensAt(layer, pos2) {
+  lensAt(layer, pos) {
     const m2 = this.model;
     const { nEmbd, eps } = m2.cfg;
     const nLens = m2.lensIds.length;
     const h = new Float32Array(nEmbd);
-    layerNormAffine(this.hidden[layer], pos2 * nEmbd, nEmbd, m2.lnFg, m2.lnFb, eps, h, 0);
+    layerNormAffine(this.hidden[layer], pos * nEmbd, nEmbd, m2.lnFg, m2.lnFb, eps, h, 0);
     const out = this.lens[layer];
-    const base = pos2 * nLens;
+    const base = pos * nLens;
     let mean = 0;
     for (let i = 0; i < nLens; i++) {
       const s = dot(m2.lensMatrix, i * nEmbd, h, 0, nEmbd);
@@ -643,13 +643,241 @@ var GPT2State = class {
     let sd = 0;
     for (let i = 0; i < nLens; i++) sd += (out[base + i] - mean) ** 2;
     sd = Math.sqrt(sd / nLens) || 1;
-    this.lensMean[layer][pos2] = mean;
-    this.lensSd[layer][pos2] = sd;
+    this.lensMean[layer][pos] = mean;
+    this.lensSd[layer][pos] = sd;
   }
 };
 
-// tools/measure-layout.ts
-var DIR = process.argv[2] ?? "public/model/gpt2";
+// src/model/run.ts
+var MAX_CONTEXT = 48;
+var Z_PUSH = 2.2;
+function sampleFrom(probs, order, temperature, topP, rand) {
+  if (temperature <= 1e-3) return order[0];
+  const scaled = order.map((id) => Math.pow(Math.max(probs[id], 1e-12), 1 / Math.max(temperature, 0.05)));
+  const total = scaled.reduce((a, b) => a + b, 0);
+  let cum = 0;
+  const keep = [];
+  for (let i = 0; i < order.length; i++) {
+    keep.push(i);
+    cum += scaled[i] / total;
+    if (cum >= topP) break;
+  }
+  let r = rand() * keep.reduce((a, i) => a + scaled[i] / total, 0);
+  for (const i of keep) {
+    r -= scaled[i] / total;
+    if (r <= 0) return order[i];
+  }
+  return order[keep[keep.length - 1]];
+}
+function readLayer(model, state, layer, T) {
+  const nLens = model.lensIds.length;
+  const features = [];
+  const suppressed = [];
+  const contended = new Int32Array(T);
+  let activations = 0;
+  const now = state.lens[layer];
+  const prev = layer > 0 ? state.lens[layer - 1] : null;
+  const delta = new Float32Array(nLens);
+  for (let pos = 0; pos < T; pos++) {
+    const base = pos * nLens;
+    let mean = 0;
+    for (let i = 0; i < nLens; i++) {
+      delta[i] = now[base + i] - (prev ? prev[base + i] : 0);
+      mean += delta[i];
+    }
+    mean /= nLens;
+    let sd = 0;
+    for (let i = 0; i < nLens; i++) sd += (delta[i] - mean) ** 2;
+    sd = Math.sqrt(sd / nLens) || 1;
+    const up = [];
+    const down = [];
+    for (let i = 0; i < nLens; i++) {
+      const z = (delta[i] - mean) / sd;
+      if (z > Z_PUSH) up.push({ id: i, act: z, delta: delta[i] });
+      else if (z < -Z_PUSH) down.push({ id: i, act: -z, delta: delta[i] });
+    }
+    contended[pos] = up.length + down.length;
+    up.sort((a, b) => b.act - a.act);
+    down.sort((a, b) => b.act - a.act);
+    activations += up.length + down.length;
+    features.push(up);
+    suppressed.push(down);
+  }
+  return { features, suppressed, contended, activations };
+}
+function measureAgreement(model, state, layer, pos, realOverLens, realTop) {
+  const nLens = model.lensIds.length;
+  const base = pos * nLens;
+  const p = new Float32Array(nLens);
+  p.set(state.lens[layer].subarray(base, base + nLens));
+  softmax(p);
+  let kl = 0;
+  for (let i = 0; i < nLens; i++) {
+    if (p[i] > 1e-12 && realOverLens[i] > 1e-12) kl += p[i] * Math.log(p[i] / realOverLens[i]);
+  }
+  const top = Array.from(p.keys()).sort((a, b) => p[b] - p[a]).slice(0, 10);
+  let hit = 0;
+  for (const i of top) if (realTop.has(i)) hit++;
+  return { agreement: hit / 10, kl };
+}
+function buildTrace(model, state, logits, active) {
+  const { nLayer, nHead } = model.cfg;
+  const T = state.length;
+  const layers = [];
+  let activations = 0;
+  const nLens = model.lensIds.length;
+  const realOverLens = new Float32Array(nLens);
+  for (let i = 0; i < nLens; i++) realOverLens[i] = logits[model.lensIds[i]];
+  softmax(realOverLens);
+  const realTop = new Set(
+    Array.from(realOverLens.keys()).sort((a, b) => realOverLens[b] - realOverLens[a]).slice(0, 10)
+  );
+  for (let l = 0; l < nLayer; l++) {
+    const { features, suppressed, contended, activations: n } = readLayer(model, state, l, T);
+    activations += n;
+    const attn = new Float32Array(nHead * T * T);
+    for (let h = 0; h < nHead; h++) {
+      for (let i = 0; i < T; i++) {
+        const src = h * state.maxT * state.maxT + i * state.maxT;
+        attn.set(state.attn[l].subarray(src, src + T), h * T * T + i * T);
+      }
+    }
+    const { agreement, kl } = measureAgreement(model, state, l, active, realOverLens, realTop);
+    layers.push({
+      layer: l,
+      agreement,
+      kl,
+      attn,
+      features,
+      suppressed,
+      contended,
+      residualNorm: new Float32Array(state.residualNorm[l].subarray(0, T)),
+      writeNorm: new Float32Array(state.writeNorm[l].subarray(0, T)),
+      proj: new Float32Array(state.proj[l].subarray(0, T * 3))
+    });
+  }
+  const probs = new Float32Array(logits.length);
+  probs.set(logits);
+  softmax(probs);
+  let entropy = 0;
+  for (let v = 0; v < probs.length; v++) if (probs[v] > 0) entropy -= probs[v] * Math.log2(probs[v]);
+  const order = Array.from({ length: probs.length }, (_, i) => i).sort((a, b) => probs[b] - probs[a]).slice(0, 40);
+  const candidates = order.map((id) => ({ id, word: model.tok.piece(id), prob: probs[id] }));
+  const lensIndex = /* @__PURE__ */ new Map();
+  model.lensIds.forEach((tokenId, i) => lensIndex.set(tokenId, i));
+  const curves = [];
+  for (const c of candidates.slice(0, 6)) {
+    const idx = lensIndex.get(c.id);
+    if (idx === void 0) continue;
+    const values = new Float32Array(nLayer);
+    for (let l = 0; l < nLayer; l++) {
+      const mu = state.lensMean[l][active];
+      const sd = state.lensSd[l][active] || 1;
+      values[l] = (state.lens[l][active * nLens + idx] - mu) / sd;
+    }
+    curves.push({ id: c.id, word: c.word, values });
+  }
+  return {
+    ids: state.ids.slice(),
+    active,
+    layers,
+    candidates,
+    curves,
+    chosen: order[0],
+    entropy,
+    activations,
+    // Every layer's write changes the score of every token in the vocabulary,
+    // not only the few thousand drawn. That is the real count.
+    scoreUpdates: model.cfg.vocabSize * nLayer
+  };
+}
+function generate(model, prompt, nSteps, opts = {}) {
+  const rand = mulberry32(opts.seed ?? 7);
+  const temperature = opts.temperature ?? 0;
+  const topP = opts.topP ?? 0.9;
+  const text = prompt.trim() || "The Eiffel Tower is located in the city of";
+  let ids = model.tok.encode(text);
+  if (ids.length === 0) ids = model.tok.encode("The Eiffel Tower is located in the city of");
+  ids = ids.slice(-(MAX_CONTEXT - nSteps - 1));
+  const state = model.newState(MAX_CONTEXT);
+  let logits = state.push(ids[0]);
+  for (let i = 1; i < ids.length; i++) logits = state.push(ids[i]);
+  const steps = [];
+  const emitted = [];
+  let considered = 0;
+  for (let s = 0; s < nSteps; s++) {
+    const probs = new Float32Array(logits.length);
+    probs.set(logits);
+    softmax(probs);
+    const order = Array.from({ length: probs.length }, (_, i) => i).sort((a, b) => probs[b] - probs[a]).slice(0, 40);
+    const chosen = sampleFrom(probs, order, temperature, topP, rand);
+    const trace = buildTrace(model, state, logits, state.length - 1);
+    trace.chosen = chosen;
+    steps.push(trace);
+    considered += trace.scoreUpdates;
+    emitted.push(chosen);
+    if (state.length >= MAX_CONTEXT) break;
+    logits = state.push(chosen);
+  }
+  return {
+    steps,
+    emitted,
+    words: emitted.map((id) => model.tok.piece(id)),
+    anticipations: findAnticipations(model, steps, emitted),
+    considered,
+    spoken: emitted.length,
+    promptWords: ids.map((id) => model.tok.piece(id)),
+    promptText: text
+  };
+}
+function findAnticipations(model, steps, emitted) {
+  const MIN_LEAD = 2;
+  const byId = /* @__PURE__ */ new Map();
+  model.lensIds.forEach((tokenId, i) => byId.set(tokenId, i));
+  const best = /* @__PURE__ */ new Map();
+  for (let s = 0; s < steps.length; s++) {
+    const step = steps[s];
+    for (let t2 = s + MIN_LEAD; t2 < steps.length; t2++) {
+      const featureId = byId.get(emitted[t2]);
+      if (featureId === void 0) continue;
+      for (const layer of step.layers) {
+        const hits = layer.features[step.active];
+        if (!hits) continue;
+        const hit = hits.find((f) => f.id === featureId);
+        if (!hit) continue;
+        const key = `${s}:${t2}`;
+        const prev = best.get(key);
+        if (!prev || hit.act > prev.z) {
+          best.set(key, {
+            step: s,
+            layer: layer.layer,
+            pos: step.active,
+            featureId,
+            label: model.lensPieces[featureId],
+            targetStep: t2,
+            targetWord: model.tok.piece(emitted[t2]),
+            z: hit.act
+          });
+        }
+      }
+    }
+  }
+  const byStep = /* @__PURE__ */ new Map();
+  for (const a of best.values()) {
+    const list = byStep.get(a.step) ?? [];
+    list.push(a);
+    byStep.set(a.step, list);
+  }
+  const out = [];
+  for (const list of byStep.values()) {
+    list.sort((a, b) => b.z - a.z);
+    out.push(...list.slice(0, 3));
+  }
+  return out.sort((a, b) => a.step - b.step || a.targetStep - b.targetStep);
+}
+
+// tools/countlit.ts
+var DIR = "public/model/gpt2";
 globalThis.fetch = async (url) => {
   const buf = readFileSync(`${DIR}/${String(url).split("/").pop()}`);
   return {
@@ -662,72 +890,19 @@ globalThis.fetch = async (url) => {
   };
 };
 var m = await GPT2.load(DIR, 0);
-var V = m.cfg.vocabSize;
-var D = m.cfg.nEmbd;
-var raw = readFileSync(`${DIR}/layout.bin`);
-var ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
-var head = new Int32Array(ab, 0, 2);
-var pos = new Float32Array(ab.slice(8, 8 + head[0] * 12));
-var U = new Float32Array(V * D);
-for (let v = 0; v < V; v++) {
-  let n = 0;
-  for (let k = 0; k < D; k++) n += m.wte[v * D + k] ** 2;
-  n = Math.sqrt(n) || 1;
-  for (let k = 0; k < D; k++) U[v * D + k] = m.wte[v * D + k] / n;
+var run = generate(m, "The Eiffel Tower is located in the city of", 3, { temperature: 0 });
+var t = run.steps[0];
+console.log(`positions=${t.ids.length} active=${t.active}`);
+var totalActive = 0;
+var totalAll = 0;
+var peak = 0;
+for (const l of t.layers) {
+  const up = l.features[t.active].length, dn = l.suppressed[t.active].length;
+  totalActive += up + dn;
+  for (const hits of l.features) totalAll += hits.length;
+  for (const h of l.features[t.active]) peak = Math.max(peak, h.act);
+  console.log(`  L${String(l.layer).padStart(2)}  active pushes ${String(up).padStart(5)} up / ${String(dn).padStart(5)} down`);
 }
-var TOP = 10;
-var SAMPLE = 300;
-var RADII = [10, 100, 500, 1e3];
-var rand = mulberry32(3);
-var hitsAt = new Array(RADII.length).fill(0);
-var neighbourDist = 0;
-var randomDist = 0;
-var hits = 0;
-for (let s = 0; s < SAMPLE; s++) {
-  const v = Math.floor(rand() * V);
-  const trueSim = new Float32Array(V);
-  const drawn = new Float32Array(V);
-  for (let u = 0; u < V; u++) {
-    if (u === v) {
-      trueSim[u] = -2;
-      drawn[u] = Infinity;
-      continue;
-    }
-    let t = 0;
-    for (let k = 0; k < D; k++) t += U[v * D + k] * U[u * D + k];
-    trueSim[u] = t;
-    drawn[u] = (pos[v * 3] - pos[u * 3]) ** 2 + (pos[v * 3 + 1] - pos[u * 3 + 1]) ** 2 + (pos[v * 3 + 2] - pos[u * 3 + 2]) ** 2;
-  }
-  const realTop = Array.from(trueSim.keys()).sort((a, b) => trueSim[b] - trueSim[a]).slice(0, TOP);
-  const byDrawn = Array.from(drawn.keys()).sort((a, b) => drawn[a] - drawn[b]);
-  RADII.forEach((r, ri) => {
-    const set = new Set(byDrawn.slice(0, r));
-    for (const t of realTop) if (set.has(t)) hitsAt[ri]++;
-  });
-  hits = hitsAt[0];
-  const nd = realTop.map((t) => Math.sqrt(drawn[t])).sort((a, b) => a - b);
-  const rd = Array.from({ length: TOP }, () => Math.sqrt(drawn[Math.floor(rand() * V)])).sort((a, b) => a - b);
-  neighbourDist += nd[Math.floor(nd.length / 2)];
-  randomDist += rd[Math.floor(rd.length / 2)];
-}
-console.log(`sampled ${SAMPLE} tokens; for each, its 10 true nearest neighbours in the model
-`);
-RADII.forEach((r, ri) => {
-  const pct = hitsAt[ri] / (SAMPLE * TOP);
-  console.log(`  within the nearest ${String(r).padStart(4)} drawn points (${(r / V * 100).toFixed(2)}% of the map): ${(pct * 100).toFixed(1)}%`);
-});
-var nMed = neighbourDist / SAMPLE;
-var rMed = randomDist / SAMPLE;
-console.log(`
-  median drawn distance to a true neighbour: ${nMed.toFixed(3)}`);
-console.log(`  median drawn distance to a random token:   ${rMed.toFixed(3)}`);
-console.log(`  ratio: ${(nMed / rMed).toFixed(2)}  (below 1 means neighbours land closer)`);
-var preservation = hitsAt[2] / (SAMPLE * TOP);
-writeFileSync(`${DIR}/layout.json`, JSON.stringify({
-  preservation,
-  top: TOP,
-  sample: SAMPLE,
-  radius: RADII[2],
-  exact10: hits / (SAMPLE * TOP)
-}, null, 2));
-console.log(`wrote ${DIR}/layout.json`);
+console.log(`active-position points across all layers: ${totalActive}`);
+console.log(`all-position points across all layers:    ${totalAll}`);
+console.log(`peak |z| at active position: ${peak.toFixed(1)}`);

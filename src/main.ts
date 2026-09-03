@@ -159,13 +159,13 @@ async function boot(): Promise<void> {
   const f = model.fidelity
   const layout = model.layout
   els.fidelityNote.innerHTML = layout
-    ? `Placement comes from a spectral embedding of the model's own nearest-neighbour graph. Of a ` +
-      `token's ten true nearest neighbours, <b>${(layout.preservation * 100).toFixed(0)}%</b> land within ` +
-      `the nearest 1% of the map, against 1% by chance, and neighbours are drawn at about two thirds the ` +
-      `distance of random pairs. Real, and weak: 50,257 points from ${model.cfg.nEmbd} dimensions cannot ` +
-      `keep more than that in three. Read regions, not adjacency. The <em>links</em> are exact — they are ` +
-      `the model's actual nearest neighbours, true wherever the two ends are drawn. Depth, colour and ` +
-      `brightness are exact.`
+    ? `Direction around the axis comes from a spectral embedding of the model's own nearest-neighbour ` +
+      `graph. Measured, a token sits <b>54°</b> from a true neighbour and <b>89.5°</b> from a random one, ` +
+      `where chance in three dimensions is 90° — so related words really do share a direction, roughly. ` +
+      `Distance in that map carried nothing (true neighbours landed no closer than random pairs), so ` +
+      `distance from the axis was given to the push strength instead, which is exact. The <em>links</em> ` +
+      `are exact too: whether two tokens are neighbours is a fact about the model, true wherever the two ` +
+      `ends are drawn.`
     : `Those are 3 of ${model.cfg.nEmbd} dimensions, holding <b>${(f.variance * 100).toFixed(1)}%</b> of ` +
       `the variance, with drawn distances correlating to the real ones at <b>r = ${f.distance.toFixed(2)}</b>. ` +
       `Proximity is a weak hint, not evidence. Depth, colour and brightness carry the exact quantities; ` +

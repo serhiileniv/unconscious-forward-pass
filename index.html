@@ -64,22 +64,26 @@
       <section>
         <h2>what is exact</h2>
         <table class="exactness">
-          <tr><td>depth of a point</td><td class="e">its layer</td></tr>
-          <tr><td>colour, brightness</td><td class="e">how far that layer moved that word's score</td></tr>
+          <tr><td>a point exists</td><td class="e">this layer moved that word's score past the threshold</td></tr>
+          <tr><td>depth</td><td class="e">which layer</td></tr>
+          <tr><td>distance from the axis</td><td class="e">how hard it was pushed</td></tr>
+          <tr><td>colour</td><td class="e">pushed toward, or pushed away</td></tr>
+          <tr><td>ring size</td><td class="e">the strongest push that layer made</td></tr>
           <tr><td>ring brightness</td><td class="e">how much the layer wrote into the stream</td></tr>
           <tr><td>filament height</td><td class="e">size of the residual there</td></tr>
           <tr><td>filament position</td><td class="e">the token's place in the sentence</td></tr>
           <tr><td>attention arcs</td><td class="e">real attention weights</td></tr>
           <tr><td>neighbour links</td><td class="e">the model's real nearest neighbours</td></tr>
+          <tr><td>the curve chart</td><td class="e">each word's running score, ending at the real logit</td></tr>
           <tr><td>next-word bars</td><td class="e">the real output distribution</td></tr>
-          <tr><td>anticipation marks</td><td class="e">measured after the run, not predicted</td></tr>
-          <tr class="weak"><td>left / right / up / down of a point</td><td class="e">approximate — see below</td></tr>
+          <tr class="weak"><td>direction around the axis</td><td class="e">semantic, and only roughly — see below</td></tr>
         </table>
         <p class="note">
-          Every element above is a measured quantity except the last. Nothing is
-          drawn for effect: an earlier build had decorative rings, a filament
-          wander that was a shadow of 768 dimensions, and anticipation lines
-          running to an invented point in space. All three are gone.
+          Every point is a word this layer actually moved. There is no backdrop of
+          dim tokens: an earlier build drew all 50,257 at every layer, which read
+          as space and meant only "this token exists". Gone, along with
+          decorative rings, a filament wander that was a shadow of 768
+          dimensions, and anticipation lines running to an invented point.
         </p>
       </section>
 

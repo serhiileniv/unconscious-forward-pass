@@ -896,6 +896,25 @@ for (let e = 0; e < REFINE; e++) {
   }
   if (e % 40 === 0) console.log(`  refine epoch ${e}/${REFINE}  ${((Date.now() - t0) / 1e3).toFixed(1)}s`);
 }
+{
+  const cx = [0, 0, 0];
+  for (let v = 0; v < V; v++) for (let k = 0; k < 3; k++) cx[k] += pos[v * 3 + k] / V;
+  const rad = new Float32Array(V);
+  for (let v = 0; v < V; v++) {
+    rad[v] = Math.hypot(pos[v * 3] - cx[0], pos[v * 3 + 1] - cx[1], pos[v * 3 + 2] - cx[2]);
+  }
+  const p95 = Float32Array.from(rad).sort()[Math.floor(V * 0.95)] || 1;
+  const headroom = p95 * 0.5;
+  let moved = 0;
+  for (let v = 0; v < V; v++) {
+    if (rad[v] <= p95 || rad[v] < 1e-9) continue;
+    const soft = p95 + headroom * (1 - Math.exp(-(rad[v] - p95) / headroom));
+    const k = soft / rad[v];
+    for (let c2 = 0; c2 < 3; c2++) pos[v * 3 + c2] = cx[c2] + (pos[v * 3 + c2] - cx[c2]) * k;
+    moved++;
+  }
+  console.log(`  bounded ${moved} tokens beyond p95 (${p95.toFixed(2)}) into ${(p95 + headroom).toFixed(2)}`);
+}
 var c = [0, 0, 0];
 for (let v = 0; v < V; v++) for (let k = 0; k < 3; k++) c[k] += pos[v * 3 + k] / V;
 var rms = 0;

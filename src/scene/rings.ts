@@ -21,21 +21,25 @@ export class Rings {
   private readonly colors: Float32Array
   private readonly nLayers: number
 
-  constructor(nLayers: number, radius: number) {
+  private readonly verts: Float32Array
+  private readonly nLayersRef: number
+
+  constructor(nLayers: number, _radius: number) {
     this.nLayers = nLayers
+    this.nLayersRef = nLayers
     const verts: number[] = []
     for (let l = 0; l < nLayers; l++) {
       const z = layerZ(l, nLayers)
       for (let i = 0; i < SEGMENTS; i++) {
         const a0 = (i / SEGMENTS) * Math.PI * 2
         const a1 = ((i + 1) / SEGMENTS) * Math.PI * 2
-        const r = radius * 1.12
-        verts.push(Math.cos(a0) * r, Math.sin(a0) * r, z, Math.cos(a1) * r, Math.sin(a1) * r, z)
+        verts.push(Math.cos(a0), Math.sin(a0), z, Math.cos(a1), Math.sin(a1), z)
       }
     }
+    this.verts = Float32Array.from(verts)
     this.colors = new Float32Array(verts.length)
     this.geom = new THREE.BufferGeometry()
-    this.geom.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+    this.geom.setAttribute('position', new THREE.Float32BufferAttribute(Float32Array.from(verts), 3))
     this.geom.setAttribute('color', new THREE.BufferAttribute(this.colors, 3))
     this.lines = new THREE.LineSegments(
       this.geom,
@@ -51,7 +55,20 @@ export class Rings {
 
   private readonly tint = new THREE.Color(PALETTE.attention)
 
-  update(layerF: number, writes: Float32Array): void {
+  update(layerF: number, writes: Float32Array, radii: Float32Array): void {
+    // Scale each ring's unit circle to that layer's strongest push.
+    const posAttr = this.geom.getAttribute('position') as THREE.BufferAttribute
+    const arr = posAttr.array as Float32Array
+    const stride = SEGMENTS * 6
+    for (let l = 0; l < this.nLayersRef; l++) {
+      const r = Math.max(0.6, radii[l] ?? 1) * 1.12
+      for (let i = 0; i < stride; i += 3) {
+        arr[l * stride + i] = this.verts[l * stride + i] * r
+        arr[l * stride + i + 1] = this.verts[l * stride + i + 1] * r
+      }
+    }
+    posAttr.needsUpdate = true
+
     const per = SEGMENTS * 6
     for (let l = 0; l < this.nLayers; l++) {
       const behind = layerF - l

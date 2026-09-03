@@ -65,16 +65,23 @@ for (let s = 0; s < SAMPLE; s++) {
     for (const t of realTop) if (set.has(t)) hitsAt[ri]++
   })
   hits = hitsAt[0]
-  for (const t of realTop) neighbourDist += Math.sqrt(drawn[t]) / TOP
-  for (let i = 0; i < TOP; i++) randomDist += Math.sqrt(drawn[Math.floor(rand() * V)]) / TOP
+  // Medians, not means: a handful of far-out tokens dominates a mean distance
+  // and made an earlier comparison read backwards.
+  const nd = realTop.map((t) => Math.sqrt(drawn[t])).sort((a, b) => a - b)
+  const rd = Array.from({ length: TOP }, () => Math.sqrt(drawn[Math.floor(rand() * V)])).sort((a, b) => a - b)
+  neighbourDist += nd[Math.floor(nd.length / 2)]
+  randomDist += rd[Math.floor(rd.length / 2)]
 }
 console.log(`sampled ${SAMPLE} tokens; for each, its 10 true nearest neighbours in the model\n`)
 RADII.forEach((r, ri) => {
   const pct = hitsAt[ri] / (SAMPLE * TOP)
   console.log(`  within the nearest ${String(r).padStart(4)} drawn points (${((r / V) * 100).toFixed(2)}% of the map): ${(pct * 100).toFixed(1)}%`)
 })
-console.log(`\n  mean drawn distance to a true neighbour: ${(neighbourDist / SAMPLE).toFixed(2)}`)
-console.log(`  mean drawn distance to a random token:   ${(randomDist / SAMPLE).toFixed(2)}`)
+const nMed = neighbourDist / SAMPLE
+const rMed = randomDist / SAMPLE
+console.log(`\n  median drawn distance to a true neighbour: ${nMed.toFixed(3)}`)
+console.log(`  median drawn distance to a random token:   ${rMed.toFixed(3)}`)
+console.log(`  ratio: ${(nMed / rMed).toFixed(2)}  (below 1 means neighbours land closer)`)
 const preservation = hitsAt[2] / (SAMPLE * TOP)
 writeFileSync(`${DIR}/layout.json`, JSON.stringify({
   preservation, top: TOP, sample: SAMPLE, radius: RADII[2],
