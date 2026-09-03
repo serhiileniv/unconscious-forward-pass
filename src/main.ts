@@ -1,6 +1,6 @@
 import './style.css'
 import type { LM } from './model/lm'
-import { DEFAULT_MODEL, generate, loadModel, MAX_CONTEXT, MODELS, type Run } from './model/run'
+import { DEFAULT_MODEL, generate, loadModel, MODELS, type Run } from './model/run'
 import { View, type RenderState } from './scene/view'
 
 /** Milliseconds for one full sweep through the stack, at 1×. */
@@ -8,11 +8,20 @@ const STEP_MS = 2600
 /** Fraction of a step spent sweeping; the remainder holds on the readout. */
 const SWEEP = 0.8
 
-const PRESETS = [
-  'The Eiffel Tower is located in the city of',
-  'When Mary and John went to the store, John gave a drink to',
-  'The first president of the United States was named',
-  '2 + 2 =',
+/**
+ * Prompts chosen by what GPT-2 actually does with them, checked in
+ * tools/presets.ts. The note is the model's own top answer and its confidence,
+ * so a weak or wrong result reads as the model's limit rather than a fault in
+ * the picture. The arithmetic one stays deliberately: a 124M model from 2019
+ * cannot add, and that is worth being able to watch.
+ */
+const PRESETS: { text: string; note: string }[] = [
+  { text: 'The Eiffel Tower is located in the city of', note: 'Paris, but at only 6% — 436 words in play' },
+  { text: 'The first President of the United States was George', note: 'Washington, 55%' },
+  { text: 'When Mary and John went to the store, John gave a drink to', note: 'Mary, 45% — the classic probe' },
+  { text: 'One, two, three, four, five, six,', note: 'seven, 84% — near certain' },
+  { text: 'Romeo and Juliet was written by William', note: 'Shakespeare, 22%' },
+  { text: '2 + 2 =', note: 'says 3 — it cannot do arithmetic' },
 ]
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -44,6 +53,10 @@ const els = {
   head: $<HTMLSelectElement>('head'),
   play: $<HTMLButtonElement>('play'),
   scrub: $<HTMLInputElement>('scrub'),
+  layerSlider: $<HTMLInputElement>('layer'),
+  layerOut: $<HTMLOutputElement>('layer-out'),
+  prevWord: $<HTMLButtonElement>('prev-word'),
+  nextWord: $<HTMLButtonElement>('next-word'),
   transport: $('transport'),
   fan: $('fan'),
   fanList: $('fan-list'),
@@ -200,17 +213,36 @@ function renderTokens(): void {
 }
 
 function buildPresets(): void {
-  for (const text of PRESETS) {
+  for (const { text, note } of PRESETS) {
     const b = document.createElement('button')
     b.type = 'button'
-    b.textContent = text.length > 34 ? `${text.slice(0, 32)}…` : text
     b.title = text
+    b.innerHTML = `${escapeHtml(text.length > 40 ? `${text.slice(0, 38)}…` : text)}<i>${escapeHtml(note)}</i>`
     b.addEventListener('click', () => {
       els.prompt.value = text
       els.run.click()
     })
     els.presets.appendChild(b)
   }
+}
+
+/** Park the wavefront on an exact layer, keeping the current word. */
+function gotoLayer(layer: number): void {
+  const nLayers = model.cfg.nLayer
+  const step = Math.min(run.steps.length - 1, Math.floor(position / STEP_MS))
+  const sweepT = (layer + 0.6) / (nLayers - 1 + 0.6)
+  position = (step + Math.min(0.999, sweepT * SWEEP)) * STEP_MS
+  playing = false
+  setPlayLabel()
+}
+
+/** Move to the start of another word's pass. */
+function stepWord(delta: number): void {
+  const step = Math.min(run.steps.length - 1, Math.floor(position / STEP_MS))
+  const next = Math.max(0, Math.min(run.steps.length - 1, step + delta))
+  position = next * STEP_MS
+  playing = false
+  setPlayLabel()
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +267,9 @@ function frame(now: number): void {
   updateHud(step, t, sweepT, layerF)
 
   els.scrub.value = String(Math.round((position / total) * 1000))
+  const shownLayer = Math.max(0, Math.min(nLayers - 1, layerF))
+  els.layerSlider.value = String(Math.round(shownLayer * 10))
+  els.layerOut.value = String(Math.round(shownLayer))
 
   if (frameWaiters.length) {
     const waiting = frameWaiters
@@ -373,6 +408,11 @@ function wire(): void {
   })
 
   els.play.addEventListener('click', togglePlay)
+  els.prevWord.addEventListener('click', () => stepWord(-1))
+  els.nextWord.addEventListener('click', () => stepWord(1))
+
+  els.layerSlider.max = String((model.cfg.nLayer - 1) * 10)
+  els.layerSlider.addEventListener('input', () => gotoLayer(Number(els.layerSlider.value) / 10))
   els.scrub.addEventListener('input', () => {
     playing = false
     setPlayLabel()
@@ -419,10 +459,19 @@ function wire(): void {
     if (e.code === 'Space') {
       e.preventDefault()
       togglePlay()
+    } else if (e.code === 'ArrowLeft') {
+      e.preventDefault()
+      stepWord(-1)
+    } else if (e.code === 'ArrowRight') {
+      e.preventDefault()
+      stepWord(1)
+    } else if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+      e.preventDefault()
+      const at = Number(els.layerSlider.value) / 10
+      gotoLayer(Math.max(0, Math.min(model.cfg.nLayer - 1, at + (e.code === 'ArrowUp' ? 1 : -1))))
     }
   })
 
-  els.steps.max = String(MAX_CONTEXT - 12)
   window.addEventListener('resize', resize)
 }
 

@@ -24,7 +24,12 @@ export const MODELS: Record<string, ModelChoice> = {
 }
 
 export const DEFAULT_MODEL = 'gpt2'
-export const MAX_CONTEXT = 32
+/**
+ * Context length. Every position costs a full attribution pass over the whole
+ * vocabulary at every layer, so this bounds memory and time rather than
+ * expressing anything about the model, which handles 1024.
+ */
+export const MAX_CONTEXT = 48
 
 /**
  * How far a layer must move a token's score, in standard deviations, to be

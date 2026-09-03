@@ -188,8 +188,18 @@ table.exactness tr.weak td, table.exactness tr.weak td.e { color: var(--supp); }
 }
 
 #presets { display: flex; flex-direction: column; gap: 3px; margin-top: 9px; }
-#presets button { text-align: left; padding: 4px 7px; font-size: 10.5px; color: var(--muted); border-color: transparent; }
+#presets button {
+  display: block;
+  text-align: left;
+  padding: 5px 7px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  border-color: transparent;
+}
+#presets button i { display: block; font-style: normal; font-size: 9.5px; color: var(--dim); margin-top: 1px; }
 #presets button:hover { color: var(--active); border-color: var(--line); }
+#presets button:hover i { color: var(--muted); }
 
 
 
@@ -241,6 +251,37 @@ table.exactness tr.weak td, table.exactness tr.weak td.e { color: var(--supp); }
 #fan li.chosen .bar { background: rgba(255, 201, 107, 0.2); }
 #fan li.chosen .p { opacity: 0.85; }
 
+/* --- layer scrubber ---
+   Depth is the one axis worth stepping through by hand: the whole argument of
+   the piece is what changes between one layer and the next. */
+#layer-scrub {
+  position: fixed;
+  /* Clear of the panel, which is 268px wide at the same inset. */
+  left: calc(var(--pad) * 2 + 268px);
+  bottom: 76px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  height: min(320px, 40vh);
+  padding: 12px 8px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+#layer-scrub input[type='range'] {
+  flex: 1;
+  width: 16px;
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+#layer-scrub input[type='range']::-webkit-slider-runnable-track { width: 1px; height: 100%; background: var(--line); }
+#layer-scrub input[type='range']::-moz-range-track { width: 1px; background: var(--line); }
+#layer-scrub input[type='range']::-webkit-slider-thumb { margin-top: 0; margin-left: -4px; }
+#layer-scrub output { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 11px; }
+
 /* --- transport --- */
 #transport {
   position: fixed;
@@ -258,7 +299,9 @@ table.exactness tr.weak td, table.exactness tr.weak td.e { color: var(--supp); }
   border: 1px solid var(--line);
   border-radius: 3px;
 }
-#transport #play { width: 34px; flex: none; text-align: center; padding: 6px 0; }
+#transport #play,
+#transport #prev-word,
+#transport #next-word { width: 34px; flex: none; text-align: center; padding: 6px 0; }
 #transport #scrub { flex: 1; }
 .speeds { display: flex; gap: 4px; flex: none; }
 .speeds button { padding: 4px 7px; color: var(--dim); font-size: 11px; }
@@ -308,6 +351,7 @@ table.exactness tr.weak td, table.exactness tr.weak td.e { color: var(--supp); }
   #panel { top: 64px; bottom: 150px; width: min(268px, calc(100vw - 2 * var(--pad))); }
   #panel[hidden] { display: none; }
   #readout { top: 58px; }
+  #layer-scrub { display: none; }
   #masthead { max-width: calc(100vw - 120px); }
   #panel { z-index: 7; }
   .stat.big .v { font-size: 17px; }

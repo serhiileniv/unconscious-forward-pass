@@ -31,8 +31,8 @@
         <div id="tokens" aria-label="how GPT-2 splits this prompt"></div>
         <div class="row">
           <label class="field-label" for="steps">words</label>
-          <input id="steps" type="range" min="4" max="14" step="1" value="10" />
-          <output id="steps-out">10</output>
+          <input id="steps" type="range" min="1" max="24" step="1" value="8" />
+          <output id="steps-out">8</output>
         </div>
         <div class="row">
           <label class="field-label" for="temp">temp</label>
@@ -153,8 +153,16 @@
       <ul id="fan-list"></ul>
     </div>
 
+    <div id="layer-scrub">
+      <label for="layer" class="field-label">layer</label>
+      <input id="layer" type="range" min="0" max="110" step="1" value="0" aria-label="layer depth" orient="vertical" />
+      <output id="layer-out">0</output>
+    </div>
+
     <footer id="transport">
+      <button id="prev-word" type="button" aria-label="previous word" title="previous word">|◀</button>
       <button id="play" type="button" aria-label="pause">❚❚</button>
+      <button id="next-word" type="button" aria-label="next word" title="next word">▶|</button>
       <input id="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="position" />
       <div class="speeds">
         <button type="button" data-speed="0.5">½×</button>
