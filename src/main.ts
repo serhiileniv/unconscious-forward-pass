@@ -54,6 +54,7 @@ const els = {
   awake: $('r-awake'),
   contending: $('r-contending'),
   entropy: $('r-entropy'),
+  inPlay: $('r-play'),
   agree: $('r-agree'),
   lensNote: $('lens-note'),
   utterPrompt: $('utterance-prompt'),
@@ -277,6 +278,9 @@ function updateHud(step: number, t: number, sweepT: number, layerF: number): voi
     els.lensNote.className = ''
   }
   els.entropy.textContent = `${trace.entropy.toFixed(2)} bits`
+  // Two to the power of the entropy: how many words are effectively still live
+  // in the model's own distribution, before one of them is chosen.
+  els.inPlay.textContent = Math.round(Math.pow(2, trace.entropy)).toLocaleString()
 
   const showFan = t > 0.6
   els.fan.hidden = !showFan
@@ -363,7 +367,10 @@ function wire(): void {
   })
 
   els.steps.addEventListener('input', () => (els.stepsOut.value = els.steps.value))
-  els.temp.addEventListener('input', () => (els.tempOut.value = Number(els.temp.value).toFixed(2)))
+  els.temp.addEventListener('input', () => {
+    const t = Number(els.temp.value)
+    els.tempOut.value = t <= 0.001 ? 'best' : t.toFixed(2)
+  })
 
   els.play.addEventListener('click', togglePlay)
   els.scrub.addEventListener('input', () => {
