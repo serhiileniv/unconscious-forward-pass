@@ -49,12 +49,29 @@ export interface Candidate {
   prob: number
 }
 
+/**
+ * One candidate word's score as it accumulates through the stack.
+ *
+ * `values[l]` is the running total after layer l — the same quantity the cloud
+ * is coloured by, read for a single word instead of all of them. The last entry
+ * is the model's real logit for that word, so a curve that ends high is a word
+ * the model came close to saying. Where two curves cross is the moment the model
+ * changed its mind.
+ */
+export interface Curve {
+  id: number
+  word: string
+  values: Float32Array
+}
+
 export interface StepTrace {
   ids: number[]
   /** The position whose pass this step actually computed. Earlier ones are settled. */
   active: number
   layers: LayerTrace[]
   candidates: Candidate[]
+  /** Running score per layer for the leading candidates. */
+  curves: Curve[]
   chosen: number
   entropy: number
   /** How many of the drawn tokens were lit in this pass. A display setting. */

@@ -234,7 +234,7 @@ table.exactness tr.weak td, table.exactness tr.weak td.e { color: var(--supp); }
   right: var(--pad);
   bottom: 132px;
   z-index: 4;
-  width: 208px;
+  width: 236px;
   padding: 12px;
   background: var(--panel);
   backdrop-filter: blur(14px);

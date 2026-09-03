@@ -15,6 +15,8 @@ export interface RenderState {
   step: number
   layerF: number
   headFilter: number
+  /** Display index of a token the viewer is following, if any. */
+  selected: number | null
   show: { features: boolean; synapses: boolean; attention: boolean; streams: boolean; labels: boolean; plans: boolean }
 }
 
@@ -139,7 +141,7 @@ export class View {
     this.rings.update(state.layerF, this.layerWork(trace))
     this.synapses.lines.visible = state.show.synapses
     if (state.show.synapses) this.synapses.update(trace, state.layerF, nLayers)
-    if (state.show.features) this.lattice.update(trace, state.layerF)
+    if (state.show.features) this.lattice.update(trace, state.layerF, state.selected)
     if (state.show.streams) this.streams.update(trace, state.layerF)
     if (state.show.attention) this.arcs.update(trace, state.layerF, nLayers, state.headFilter)
 
@@ -222,6 +224,19 @@ export class View {
           opacity: Math.max(0, phase) * 0.8,
         })
       }
+    }
+
+    if (state.selected !== null) {
+      const l = Math.max(0, Math.min(nLayers - 1, Math.round(state.layerF)))
+      this.featurePoint(state.selected, l, v)
+      out.push({
+        id: 'selected',
+        text: this.model.lensPieces[state.selected].trim() || this.model.lensPieces[state.selected],
+        sub: 'following',
+        world: v.clone(),
+        kind: 'anticipation',
+        opacity: 1,
+      })
     }
 
     if (state.show.plans) {

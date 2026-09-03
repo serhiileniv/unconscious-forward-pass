@@ -2,7 +2,7 @@ import { GPT2 } from './gpt2'
 import { LlamaLM } from './llama'
 import type { LM, LMState, LoadProgress } from './lm'
 import { mulberry32, softmax } from './math'
-import type { Candidate, FeatureHit, LayerTrace, StepTrace } from './trace'
+import type { Candidate, Curve, FeatureHit, LayerTrace, StepTrace } from './trace'
 
 export interface ModelChoice {
   url: string
@@ -243,11 +243,32 @@ function buildTrace(model: LM, state: LMState, logits: Float32Array, active: num
   const order = Array.from({ length: probs.length }, (_, i) => i).sort((a, b) => probs[b] - probs[a]).slice(0, 40)
   const candidates: Candidate[] = order.map((id) => ({ id, word: model.tok.piece(id), prob: probs[id] }))
 
+  // Pull each leading word's running total out of the same arrays the cloud is
+  // coloured from, standardised the same way. Raw totals share a large common
+  // component that grows with the residual, so six raw curves lie on top of each
+  // other; against the layer's own mean and spread they separate, and where two
+  // cross is the layer at which the model changed its mind.
+  const lensIndex = new Map<number, number>()
+  model.lensIds.forEach((tokenId, i) => lensIndex.set(tokenId, i))
+  const curves: Curve[] = []
+  for (const c of candidates.slice(0, 6)) {
+    const idx = lensIndex.get(c.id)
+    if (idx === undefined) continue
+    const values = new Float32Array(nLayer)
+    for (let l = 0; l < nLayer; l++) {
+      const mu = state.lensMean[l][active]
+      const sd = state.lensSd[l][active] || 1
+      values[l] = (state.lens[l][active * nLens + idx] - mu) / sd
+    }
+    curves.push({ id: c.id, word: c.word, values })
+  }
+
   return {
     ids: state.ids.slice(),
     active,
     layers,
     candidates,
+    curves,
     chosen: order[0],
     entropy,
     activations,

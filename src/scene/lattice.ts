@@ -184,10 +184,10 @@ export class Lattice {
    * which is the visual claim that a forward pass leaves a fading trace and then
    * nothing.
    */
-  update(trace: StepTrace, layerF: number, tail = 1.25): void {
+  update(trace: StepTrace, layerF: number, selected: number | null, tail = 1.25): void {
     // Repainting at full frame rate re-uploads the whole buffer for a change the
     // eye cannot resolve; sixths of a layer are indistinguishable in motion.
-    const key = Math.round(layerF * 6)
+    const key = Math.round(layerF * 6) * 1e7 + (selected ?? -1)
     if (key === this.lastKey) return
     this.lastKey = key
 
@@ -239,6 +239,22 @@ export class Lattice {
           s[base + hit.id] = Math.max(s[base + hit.id], 0.22 + a * 0.42)
           mark(base + hit.id)
         }
+      }
+    }
+
+    // A followed word is drawn at every layer whether or not that layer moved
+    // it, so its whole path through the stack is visible at once.
+    if (selected !== null && selected >= 0 && selected < this.nFeatures) {
+      for (let l = 0; l < trace.layers.length; l++) {
+        const idx = l * this.nFeatures + selected
+        const i = idx * 3
+        const behind = layerF - l
+        const w = behind < 0 ? 0.18 : 0.35 + 0.65 * Math.exp(-behind / tail)
+        c[i] = PALETTE.peak[0] * w
+        c[i + 1] = PALETTE.peak[1] * w
+        c[i + 2] = PALETTE.peak[2] * w
+        s[idx] = 1.1 + w * 1.5
+        mark(idx)
       }
     }
 

@@ -2,6 +2,7 @@ import './style.css'
 import type { LM } from './model/lm'
 import { DEFAULT_MODEL, generate, loadModel, MODELS, type Run } from './model/run'
 import { View, type RenderState } from './scene/view'
+import { renderCurves } from './ui/curves'
 
 /** Milliseconds for one full sweep through the stack, at 1×. */
 const STEP_MS = 2600
@@ -60,6 +61,7 @@ const els = {
   transport: $('transport'),
   fan: $('fan'),
   fanList: $('fan-list'),
+  curves: document.getElementById('curves') as unknown as SVGSVGElement,
   considered: $('r-considered'),
   spoken: $('r-spoken'),
   ratio: $('r-ratio'),
@@ -84,6 +86,7 @@ let position = 0
 let last = performance.now()
 let renderedWords = -1
 let frameWaiters: (() => void)[] = []
+const tokenIndex = new Map<number, number>()
 
 const show: RenderState['show'] = {
   features: true,
@@ -94,6 +97,10 @@ const show: RenderState['show'] = {
   plans: true,
 }
 let headFilter = -1
+/** GPT-2 token id the viewer is following, or null. */
+let selectedToken: number | null = null
+/** Its index in the drawn set, which is what the renderer needs. */
+let selectedIndex: number | null = null
 
 // ---------------------------------------------------------------------------
 
@@ -164,6 +171,8 @@ async function boot(): Promise<void> {
       `Proximity is a weak hint, not evidence. Depth, colour and brightness carry the exact quantities; ` +
       `left-right and up-down placement does not.`
 
+  model.lensIds.forEach((tokenId, i) => tokenIndex.set(tokenId, i))
+
   wire()
   buildPresets()
   regenerate()
@@ -190,6 +199,8 @@ function regenerate(): void {
   els.utterPrompt.textContent = run.promptWords.join('')
   els.utterOut.textContent = ''
   renderedWords = -1
+  selectedToken = null
+  selectedIndex = null
   position = 0
   playing = true
   setPlayLabel()
@@ -263,7 +274,7 @@ function frame(now: number): void {
   const nLayers = model.cfg.nLayer
   const layerF = -0.6 + sweepT * (nLayers - 1 + 0.6)
 
-  view.render({ step, layerF, headFilter, show })
+  view.render({ step, layerF, headFilter, show, selected: selectedIndex })
   updateHud(step, t, sweepT, layerF)
 
   els.scrub.value = String(Math.round((position / total) * 1000))
@@ -317,9 +328,11 @@ function updateHud(step: number, t: number, sweepT: number, layerF: number): voi
   // in the model's own distribution, before one of them is chosen.
   els.inPlay.textContent = Math.round(Math.pow(2, trace.entropy)).toLocaleString()
 
-  const showFan = t > 0.6
-  els.fan.hidden = !showFan
-  if (showFan) renderFan(step, t >= SWEEP)
+  // The chart is the answer to "why that word", so it is up for the whole pass
+  // rather than only at the moment of choosing.
+  els.fan.hidden = false
+  renderFan(step, t >= SWEEP)
+  renderCurves(els.curves, trace, layerF, selectedToken)
 
   if (done !== renderedWords) {
     renderedWords = done
@@ -360,12 +373,21 @@ function renderFan(step: number, resolved: boolean): void {
   els.fanList.innerHTML = top
     .map((c) => {
       const chosen = resolved && c.id === trace.chosen
+      const sel = selectedToken === c.id
       const w = Math.max(2, (c.prob / max) * 100)
       const label = c.word.replace(/ /g, '·').replace(/\n/g, '\\n')
-      return `<li class="${chosen ? 'chosen' : ''}"><i class="bar" style="width:${w}%"></i>` +
+      return `<li data-id="${c.id}" class="${chosen ? 'chosen' : ''}${sel ? ' sel' : ''}">` +
+        `<i class="bar" style="width:${w}%"></i>` +
         `<span>${escapeHtml(label)}</span><span class="p">${(c.prob * 100).toFixed(1)}%</span></li>`
     })
     .join('')
+}
+
+/** Follow one word through the stack, or stop following it. */
+function selectToken(tokenId: number | null): void {
+  selectedToken = selectedToken === tokenId ? null : tokenId
+  selectedIndex = selectedToken === null ? null : (tokenIndex.get(selectedToken) ?? null)
+  els.fanList.dataset.key = ''
 }
 
 function renderUtterance(done: number): void {
@@ -405,6 +427,11 @@ function wire(): void {
   els.temp.addEventListener('input', () => {
     const t = Number(els.temp.value)
     els.tempOut.value = t <= 0.001 ? 'best' : t.toFixed(2)
+  })
+
+  els.fanList.addEventListener('click', (e) => {
+    const li = (e.target as HTMLElement).closest('li')
+    if (li?.dataset.id) selectToken(Number(li.dataset.id))
   })
 
   els.play.addEventListener('click', togglePlay)
