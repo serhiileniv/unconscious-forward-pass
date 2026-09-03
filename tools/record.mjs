@@ -36,6 +36,10 @@ const gpuFlags = process.env.SOFTWARE
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
   '--headless=new',
   ...gpuFlags,
+  // Half a gigabyte of weights plus a large point buffer; the default heap
+  // ceiling was being hit part-way through a capture.
+  '--js-flags=--max-old-space-size=4096',
+  '--disable-dev-shm-usage',
   '--hide-scrollbars',
   `--window-size=${W},${H}`,
   '--force-device-scale-factor=1',
@@ -61,6 +65,16 @@ async function targetUrl() {
 const ws = new WebSocket(await targetUrl())
 await new Promise((r) => ws.addEventListener('open', r, { once: true }))
 
+// A dropped socket used to hang on an unsettled await with no explanation.
+let dead = null
+const die = (why) => {
+  dead = why
+  for (const { reject } of pending.values()) reject(new Error(why))
+  pending.clear()
+}
+ws.addEventListener('close', () => die('devtools socket closed (chrome exited?)'))
+ws.addEventListener('error', () => die('devtools socket error'))
+
 let id = 0
 const pending = new Map()
 ws.addEventListener('message', (ev) => {
@@ -72,6 +86,7 @@ ws.addEventListener('message', (ev) => {
 })
 const send = (method, params = {}) =>
   new Promise((resolve, reject) => {
+    if (dead) return reject(new Error(dead))
     const n = ++id
     pending.set(n, { resolve, reject })
     ws.send(JSON.stringify({ id: n, method, params }))

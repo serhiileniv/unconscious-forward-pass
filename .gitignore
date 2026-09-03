@@ -7,5 +7,7 @@ artifact/
 public/model/
 frames/
 *.mp4
+# The README's media is committed on purpose.
+!docs/*.mp4
 public/model/*/layout.bin
 public/model/*/layout.json

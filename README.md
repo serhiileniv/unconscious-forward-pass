@@ -3,6 +3,13 @@
 A 3D visualisation of what happens inside a language model between reading a
 prompt and saying one word.
 
+![GPT-2 completing "The Eiffel Tower is located in the city of"](docs/preview.gif)
+
+<sub>GPT-2 answering *"The Eiffel Tower is located in the city of"*. Each point is a
+word that layer moved; distance from the axis is how hard. It answers **Paris**,
+correctly, with 436 words still effectively in play.
+**[Full 30-second version](docs/unconscious-30s.mp4)**</sub>
+
 Real published weights run a real forward pass in your browser. Every token in
 the vocabulary is drawn, with no subset and no cap on how many may light at once,
 and what lights up is an exact decomposition of the model's own output.
