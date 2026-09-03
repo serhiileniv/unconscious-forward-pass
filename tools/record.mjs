@@ -17,11 +17,12 @@ const SECONDS = Number(secs)
 const FPS = Number(fps)
 const TOTAL = Math.round(SECONDS * FPS)
 const WORDS = 12 // 12 x 2600ms per pass ≈ 31s of material for a 30s cut
-// Indirect object identification: the canonical interpretability probe, and one
-// of the few things GPT-2 124M reliably gets right. A low temperature keeps it
-// on its own best guess, so the layers and the emitted word tell one story.
-const PROMPT = process.env.PROMPT ?? 'When Mary and John went to the store, John gave a drink to'
-const TEMP = process.env.TEMP ?? '0.3'
+// GPT-2 answers this correctly and is barely sure of it: " Paris" leads at 6.4%
+// with 436 words still effectively in play, which is the whole argument of the
+// piece in one prompt. Temperature zero so the emitted word is the model's own
+// best answer and the layers and the sentence tell one story.
+const PROMPT = process.env.PROMPT ?? 'The Eiffel Tower is located in the city of'
+const TEMP = process.env.TEMP ?? '0'
 
 mkdirSync(outDir, { recursive: true })
 

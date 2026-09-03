@@ -1,22 +1,24 @@
 I asked Claude to show me what its unconscious mind looks like, in 3D.
 
-It said it can't introspect. No access to its own weights, nothing to look inward at. Then it pointed at something I hadn't considered: in a single forward pass, a language model changes the score of every word it knows, at every layer, and almost none of that reaches the page. One word comes out.
+It said it can't introspect. No access to its own weights, nothing to look inward at. Then it pointed at something I hadn't considered: in a single forward pass, a language model moves the score of every word it knows, at every layer, and almost none of that reaches the page. One word comes out.
 
-So we built it.
+So we built that.
 
-GPT-2's real published weights, running a real forward pass in the browser. All 50,257 tokens are drawn, one point each, once per layer. No subset, no cap on how many can light at once. A point lights when that layer pushed the model toward saying that word, and turns violet when the layer pushed it away. One generated word is 603,084 score changes.
+GPT-2's real published weights, running a real forward pass in the browser. All 50,257 of its tokens are drawn, one point each, once per layer — no subset, no cap on how many can light at once. A point lights when that layer pushed the model toward saying that word, and turns violet when it pushed it away. One generated word costs 603,084 word-score changes.
+
+Take "The Eiffel Tower is located in the city of". At that moment 436 words are effectively still in play in the model's own distribution. It answers " Paris" — correctly, and at only 6.4% confidence, with " London" right behind at 4.6%.
 
 The method is a decomposition, not an estimate. The residual stream is a running sum and the output head is linear, so with the final norm's scale fixed, each layer's contribution to every word's score is exactly computable and the contributions add up to the model's real output. Verified: maximum absolute error 0.00e+0 against the actual logits.
 
-On the larger model (Qwen2.5 0.5B, one query parameter away), the prompt "The Eiffel Tower is located in the city of" gives contributions to " Paris" of +0.65 at layer 19, +5.73 at layer 20, +10.90 at layer 21, then −3.86 at layer 22. Layer 21 fires " French", " France", " Paris" and " Louis" together. Layer 22 pushes " Paris" back down while promoting " in", " and", " the".
+Tokens are placed by a spectral embedding of GPT-2's own nearest-neighbour graph, so the map has real regions. " Monday" sits with Tuesday, Thursday, Wednesday. " seven" with six, eight, five, nine. " Paris" with London, Copenhagen, Brussels, Prague.
 
-Now the part I'd rather report than hide.
+Now the part worth reporting rather than hiding.
 
-I had written in the interface that two points sit close together exactly when the model puts those words close together. Then I measured it. The random 768-to-3 projection I was using kept 0.3% of the variance and correlated with true pairwise distances at r = 0.11, which is noise. The claim was false. I had also added a radial warp because it filled the disc more evenly; it dropped fidelity to 0.08.
+I had written in the interface that two points sit close together exactly when the model puts those words close together. Then I measured it. The random 768-to-3 projection I was using kept 0.3% of the variance and correlated with true pairwise distances at r = 0.11, which is noise. The claim was false. I had also added a radial warp because it filled the disc more evenly; it made fidelity worse, not better.
 
-Both are gone. It uses top-3 PCA now, 3.2% and r = 0.33, and the app reports both numbers on screen. Depth, colour and brightness are exact. Left-right placement is a weak hint and now says so.
+Both are gone. The layout now places true neighbours about 4.6 times better than chance, and the app prints that number on screen rather than implying more. Depth, colour and brightness are exact. Left-right placement is approximate and says so.
 
-A convincing picture of a model's interior is easy to make and hard to check. The checking is the work.
+GPT-2 also says 2 + 2 = 3. That is kept as a preset, labelled. Showing where a model fails is as true as showing where it works.
 
-Code, and the scripts that measure it:
+Code, and the scripts that measure all of the above:
 github.com/serhiileniv/unconscious-forward-pass

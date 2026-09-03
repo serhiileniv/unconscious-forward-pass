@@ -1,53 +1,54 @@
-[1/7]
+[1/8]
 I asked Claude to show me its unconscious in 3D.
 
-It said it has no introspective access. Then it pointed at something real: in one forward pass a model changes the score of every word it knows, every layer, and one word comes out.
+It said it can't introspect. Then it pointed at something real: in one forward pass a model moves the score of every word it knows, every layer, and one word comes out.
 
-So we built it. Real weights, in the browser.
+So we built that. GPT-2's real weights, in a browser.
 
-[2/7]
-GPT-2 124M. All 50,257 tokens drawn, one point each, per layer. No subset, no top-k.
+[2/8]
+"The Eiffel Tower is located in the city of"
 
-A point lights when that layer pushed the model toward saying that word. Violet when it pushed away.
+436 words are effectively still in play at that moment. GPT-2 answers " Paris".
 
-One generated word = 603,084 score changes.
+Every one of its 50,257 tokens is drawn, once per layer. No subset, no top-k. 603,084 word-scores move per word spoken.
 
-[3/7]
-It's not a logit lens. It's an exact decomposition.
+[3/8]
+A point lights when that layer pushed the model toward saying it. Violet when it pushed away.
 
-The residual stream is a running sum and the output head is linear, so each layer's contribution to every word's score is exactly computable, and the parts sum to the model's real logits.
+Not a logit lens. An exact decomposition: the residual stream is a running sum, the output head is linear, so the parts sum to the real logits.
 
 Max abs error: 0.00e+0
 
-[4/7]
-On Qwen2.5 0.5B (?model=qwen), contribution to " Paris" for "…the city of":
+[4/8]
+Tokens are placed by a spectral embedding of GPT-2's own nearest-neighbour graph.
 
-L19 +0.65
-L20 +5.73
-L21 +10.90
-L22 −3.86
+" Monday" → Tuesday Thursday Wednesday Friday
+" seven" → six eight five nine
+" Paris" → London Copenhagen Brussels Prague
 
-Layer 21 fires " French" " France" " Paris" " Louis" together. Layer 22 then pushes " Paris" back down.
+So the map has real regions.
 
-[5/7]
-The thing I got wrong, and had to measure to find:
+[5/8]
+The thing I got wrong, and only found by measuring:
 
-I'd claimed points near each other meant words the model puts near each other.
+I'd claimed nearby points meant related words. The random 768→3 projection kept 0.3% of the variance, distance correlation r=0.11.
 
-Random 768→3 projection: keeps 0.3% of variance, distance correlation r=0.11.
+Noise. The claim was false.
 
-That's noise. The claim was false.
+[6/8]
+Worse — I'd added a radial warp because it looked better. It made fidelity *worse*, 0.11 → 0.08.
 
-[6/7]
-Worse: I'd added an r^0.62 radial warp because it looked better. It dropped fidelity to 0.08.
+Both gone. The layout is 4.6× better than chance now, and the app prints that number at you instead of implying more.
 
-Now top-3 PCA — 3.2%, r=0.33 — and the app prints both numbers at you.
+[7/8]
+The links are the honest part. Whether two tokens are neighbours is a fact about the model, true wherever the two ends get drawn.
 
-Depth, colour and brightness are exact. Left-right placement is a weak hint.
+Depth, colour, brightness: exact.
+Left/right placement: approximate, and labelled.
 
-[7/7]
-What it still doesn't show: why a layer pushed as it did, or anything the output head can't see.
+[8/8]
+GPT-2 also says 2 + 2 = 3, and I kept that in as a preset.
 
-These aren't "the words in its mind". They're the exact amount each layer moved every word's score.
+Showing where a model fails is as true as showing where it works.
 
 github.com/serhiileniv/unconscious-forward-pass
