@@ -153,21 +153,22 @@
       <ul id="fan-list"></ul>
     </div>
 
-    <div id="layer-scrub">
-      <label for="layer" class="field-label">layer</label>
-      <input id="layer" type="range" min="0" max="110" step="1" value="0" aria-label="layer depth" orient="vertical" />
-      <output id="layer-out">0</output>
-    </div>
-
     <footer id="transport">
-      <button id="prev-word" type="button" aria-label="previous word" title="previous word">|◀</button>
-      <button id="play" type="button" aria-label="pause">❚❚</button>
-      <button id="next-word" type="button" aria-label="next word" title="next word">▶|</button>
-      <input id="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="position" />
-      <div class="speeds">
-        <button type="button" data-speed="0.5">½×</button>
-        <button type="button" data-speed="1" class="on">1×</button>
-        <button type="button" data-speed="2">2×</button>
+      <div class="row-t">
+        <button id="prev-word" type="button" aria-label="previous word" title="previous word">|◀</button>
+        <button id="play" type="button" aria-label="pause">❚❚</button>
+        <button id="next-word" type="button" aria-label="next word" title="next word">▶|</button>
+        <input id="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="position" />
+        <div class="speeds">
+          <button type="button" data-speed="0.5">½×</button>
+          <button type="button" data-speed="1" class="on">1×</button>
+          <button type="button" data-speed="2">2×</button>
+        </div>
+      </div>
+      <div class="row-t">
+        <span class="t-label">layer</span>
+        <input id="layer" type="range" min="0" max="110" step="1" value="0" aria-label="layer depth" />
+        <output id="layer-out">0</output>
       </div>
     </footer>
 

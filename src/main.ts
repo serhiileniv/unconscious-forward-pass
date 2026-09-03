@@ -269,7 +269,7 @@ function frame(now: number): void {
   els.scrub.value = String(Math.round((position / total) * 1000))
   const shownLayer = Math.max(0, Math.min(nLayers - 1, layerF))
   els.layerSlider.value = String(Math.round(shownLayer * 10))
-  els.layerOut.value = String(Math.round(shownLayer))
+  els.layerOut.value = `${Math.round(shownLayer)} / ${nLayers - 1}`
 
   if (frameWaiters.length) {
     const waiting = frameWaiters
