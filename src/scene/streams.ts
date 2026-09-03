@@ -4,7 +4,7 @@ import { layerGap, layerZ, tokenX } from './lattice'
 import { PALETTE } from './palette'
 
 /** Vertical range used to show how large the residual has grown. */
-const RISE = 5.5
+export const RISE = 5.5
 
 /**
  * Every coordinate of a filament is an exact quantity.
@@ -17,7 +17,7 @@ const RISE = 5.5
  * layer, horizontal is the token's place in the sentence, and brightness is how
  * much the layer wrote. Nothing here is a projection.
  */
-function traceScale(trace: StepTrace): { rise: number; write: number } {
+export function traceScale(trace: StepTrace): { rise: number; write: number } {
   let normMax = 1e-6
   let writeMax = 1e-6
   for (const layer of trace.layers) {
@@ -125,6 +125,11 @@ export class Streams {
       }
     }
     this.geom.getAttribute('color').needsUpdate = true
+  }
+
+  /** Vertex positions currently in the filament buffer, for the self-check. */
+  debugVertices(): Float32Array {
+    return this.positions
   }
 
   dispose(): void {

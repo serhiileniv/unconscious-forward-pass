@@ -146,6 +146,41 @@ export class Lattice {
     this.points.frustumCulled = false
   }
 
+  /**
+   * Everything currently in the point buffer, paired back to the token and
+   * layer it came from. Only used by the self-check, which compares the buffer
+   * against the model's own numbers rather than trusting the drawing code.
+   */
+  debugPoints(): { token: number; layer: number; x: number; y: number; z: number; r: number; g: number; b: number }[] {
+    const out: { token: number; layer: number; x: number; y: number; z: number; r: number; g: number; b: number }[] = []
+    for (const [key, at] of this.drawnAt) {
+      out.push({
+        token: key % this.nTokens,
+        layer: Math.floor(key / this.nTokens),
+        x: this.positions[at * 3],
+        y: this.positions[at * 3 + 1],
+        z: this.positions[at * 3 + 2],
+        r: this.colors[at * 3],
+        g: this.colors[at * 3 + 1],
+        b: this.colors[at * 3 + 2],
+      })
+    }
+    return out
+  }
+
+  /** The radius this strength should map to, for the self-check. */
+  expectedRadius(strength: number): number {
+    return this.radiusFor(strength)
+  }
+
+  get drawnCount(): number {
+    return this.drawnAt.size
+  }
+
+  get peakPush(): number {
+    return this.peak
+  }
+
   /** Where a token was drawn at a layer, if it was drawn at all. */
   pointAt(token: number, layer: number, out: THREE.Vector3): boolean {
     const at = this.drawnAt.get(layer * this.nTokens + token)
@@ -184,7 +219,9 @@ export class Lattice {
       let strongest = Z_PUSH
       for (const h of trace.layers[l].features[trace.active] ?? []) if (h.act > strongest) strongest = h.act
       for (const h of trace.layers[l].suppressed[trace.active] ?? []) if (h.act > strongest) strongest = h.act
-      this.layerRadius[l] = this.radiusFor(strongest)
+      // Floor the ring so a quiet layer still reads as a ring rather than a
+      // dot; ordering and relative size are preserved above it.
+      this.layerRadius[l] = Math.max(R_MAX * 0.55, this.radiusFor(strongest))
     }
 
     const p = this.positions
@@ -203,11 +240,11 @@ export class Lattice {
       const a = Math.min(1, (strength - Z_PUSH) * 0.5 + 0.35) * w
       const tint = warm ? PALETTE.active : PALETTE.suppressed
       const heat = warm ? Math.min(1, Math.max(0, strength - 2.6) * 0.5) : 0
-      const g = a * (warm ? 0.95 : 0.7)
+      const g = a * (warm ? 1.25 : 0.9)
       c[n * 3] = (tint[0] * (1 - heat) + PALETTE.peak[0] * heat) * g
       c[n * 3 + 1] = (tint[1] * (1 - heat) + PALETTE.peak[1] * heat) * g
       c[n * 3 + 2] = (tint[2] * (1 - heat) + PALETTE.peak[2] * heat) * g
-      s[n] = 0.38 + a * 1.05
+      s[n] = 0.42 + a * 1.15
       this.drawnAt.set(layer * this.nTokens + token, n)
       n++
     }

@@ -26,13 +26,26 @@ export class Labels {
 
   update(specs: LabelSpec[], camera: THREE.Camera, width: number, height: number): void {
     const live = new Set<string>()
+
+    // Project first, then separate vertically. Overlapping labels are unreadable
+    // and, worse, look like one label attached to the wrong point.
+    const placed: { spec: LabelSpec; x: number; y: number }[] = []
     for (const spec of specs) {
       this.v.copy(spec.world).project(camera)
       if (this.v.z > 1) continue
       const x = (this.v.x * 0.5 + 0.5) * width
       const y = (-this.v.y * 0.5 + 0.5) * height
       if (x < -100 || x > width + 100 || y < -60 || y > height + 60) continue
+      placed.push({ spec, x, y })
+    }
+    placed.sort((a, b) => a.y - b.y)
+    const GAP = 15
+    for (let i = 1; i < placed.length; i++) {
+      if (Math.abs(placed[i].x - placed[i - 1].x) > 150) continue
+      if (placed[i].y - placed[i - 1].y < GAP) placed[i].y = placed[i - 1].y + GAP
+    }
 
+    for (const { spec, x, y } of placed) {
       live.add(spec.id)
       let el = this.pool.get(spec.id)
       if (!el) {

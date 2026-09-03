@@ -48,7 +48,7 @@ export class Synapses {
       new THREE.LineBasicMaterial({
         vertexColors: true,
         transparent: true,
-        opacity: 0.28,
+        opacity: 0.3,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
@@ -67,11 +67,16 @@ export class Synapses {
       this.geom.setDrawRange(0, 0)
       return
     }
-    const key = l * 8 + Math.round((layerF - l) * 4)
+    const key = Math.round(layerF * 6)
     if (key === this.lastKey) return
     this.lastKey = key
 
-    const phase = 1 - Math.min(1, Math.abs(layerF - l) * 1.5)
+    // Fade with the wavefront, the same way the points do. An earlier version
+    // borrowed attention's gate, which drops to zero halfway between layers —
+    // right for something that happens and is gone, wrong for structure, and it
+    // made the links strobe.
+    const behind = layerF - l
+    const phase = behind < 0 ? 0 : Math.exp(-behind / 1.25)
     if (phase <= 0.02) {
       this.geom.setDrawRange(0, 0)
       return
@@ -104,7 +109,7 @@ export class Synapses {
           this.positions.set([A.x, A.y, A.z, B.x, B.y, B.z], v * 6)
           // Brighter at the pushed end, dimmer at the neighbour, so the edge
           // reads as reaching outward rather than as a static link.
-          const g = strength * sim * 0.16
+          const g = strength * sim * 0.2
           this.colors.set(
             [tint[0] * g, tint[1] * g, tint[2] * g, tint[0] * g * 0.25, tint[1] * g * 0.25, tint[2] * g * 0.25],
             v * 6,
@@ -119,6 +124,11 @@ export class Synapses {
     this.geom.setDrawRange(0, v * 2)
     this.geom.getAttribute('position').needsUpdate = true
     this.geom.getAttribute('color').needsUpdate = true
+  }
+
+  /** Edge endpoints currently drawn, for the self-check. */
+  debugEdges(): { count: number; positions: Float32Array } {
+    return { count: this.geom.drawRange.count / 2, positions: this.positions }
   }
 
   dispose(): void {

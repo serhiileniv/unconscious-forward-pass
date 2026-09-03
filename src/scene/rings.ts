@@ -88,6 +88,11 @@ export class Rings {
     this.geom.getAttribute('color').needsUpdate = true
   }
 
+  /** Ring vertex buffer, for the self-check. */
+  debugVertices(): Float32Array {
+    return this.geom.getAttribute('position').array as Float32Array
+  }
+
   dispose(): void {
     this.geom.dispose()
     ;(this.lines.material as THREE.Material).dispose()

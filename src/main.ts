@@ -542,6 +542,9 @@ declare global {
       play(): void
       duration(): number
       capture(ms: number, azimuth: number, elevation: number, distance: number): Promise<void>
+      validate(): { name: string; pass: boolean; detail: string }[]
+      /** False until the weights are loaded and a first pass has been generated. */
+      ready(): boolean
     }
   }
 }
@@ -561,6 +564,19 @@ window.__uc = {
   },
   duration() {
     return run.steps.length * STEP_MS
+  },
+  // `__uc` is assigned at module load, long before the weights arrive, so tools
+  // that poll for its existence were racing the first generated pass.
+  ready() {
+    return Boolean(view && run && run.steps.length)
+  },
+  /** Check the drawn buffers against the model. See View.validate. */
+  validate() {
+    if (!view || !run) return []
+    const step = Math.min(run.steps.length - 1, Math.floor(position / STEP_MS))
+    const t = (position % STEP_MS) / STEP_MS
+    const layerF = -0.6 + Math.min(1, t / SWEEP) * (model.cfg.nLayer - 1 + 0.6)
+    return view.validate({ step, layerF, headFilter, show, selected: selectedIndex })
   },
   capture(ms, azimuth, elevation, distance) {
     playing = false

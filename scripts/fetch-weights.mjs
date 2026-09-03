@@ -15,6 +15,16 @@ const DIR = 'public/model/qwen'
 
 mkdirSync(DIR, { recursive: true })
 
+// Skip the network entirely when the weights are already here. `npm run dev`
+// depends on this script, and an unreachable host should not stop the server
+// from starting on files that are sitting on disk.
+const complete =
+  FILES.every((f) => existsSync(`${DIR}/${f}`)) && statSync(`${DIR}/model.safetensors`).size > 100 << 20
+if (complete && !process.argv.includes('--force')) {
+  console.log(`weights already in ${DIR} (pass --force to re-download)`)
+  process.exit(0)
+}
+
 for (const file of FILES) {
   const dest = `${DIR}/${file}`
   const url = `https://huggingface.co/${REPO}/resolve/main/${file}`

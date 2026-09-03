@@ -23,6 +23,33 @@ answers far better and runs about six times slower.
 | **Violet** | A word this layer pushed the model *away* from. |
 | **Long amber threads** | A word the model went on to write several steps later, already being pushed for now. |
 
+## Checking it
+
+Every claim the interface makes about what a visual property means is
+re-derived from the trace and compared against the buffers actually being drawn.
+It reads the same memory the GPU does, so a check passing means the pixels are
+right, not that the intent was.
+
+```
+$ node tools/validate.mjs
+150 checks across 15 moments
+
+pass  points drawn = words this layer moved      7491 drawn, 7491 past threshold
+pass  depth = layer index                        max deviation 0.494 within slab 0.525
+pass  distance from axis = push strength         max deviation 5.1e-7 over 7441 points
+pass  warm = pushed toward, violet = pushed away  0 points with the wrong hue
+pass  ring radius = strongest push in that layer  max deviation 4.6e-7
+pass  filament x = token position                max deviation 4.4e-7
+pass  filament height = residual norm            max deviation 1.2e-7
+pass  every link ends on a drawn point           2498 links, 0 dangling
+pass  attention rows sum to one                  max deviation 4.3e-8
+pass  curve ends at the final layer score
+```
+
+It has already caught two real defects: neighbour links borrowed attention's
+gate and strobed off halfway between layers, and a check that passed by drawing
+nothing at all until it was made to report its own count.
+
 ## What makes it exact
 
 The residual stream is a running sum — the embedding plus every layer's write —

@@ -86,7 +86,7 @@ await send('Page.navigate', { url })
 // Wait for the model build to finish and the hooks to appear.
 // Half a gigabyte of weights has to arrive and unpack first.
 for (let i = 0; i < 260; i++) {
-  if (await evaluate('!!window.__uc')) break
+  if (await evaluate('!!(window.__uc && window.__uc.ready && window.__uc.ready())')) break
   await sleep(500)
 }
 
