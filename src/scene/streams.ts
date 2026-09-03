@@ -3,23 +3,28 @@ import type { StepTrace } from '../model/trace'
 import { layerGap, layerZ, tokenX } from './lattice'
 import { PALETTE } from './palette'
 
-/** How far the residual's real 3D projection is allowed to pull its filament. */
-const WANDER = 1.5
+/** Vertical range used to show how large the residual has grown. */
+const RISE = 5.5
 
 /**
- * Residual norms grow by more than an order of magnitude from the first layer to
- * the last, and differ again between models, so both the sideways wander and the
- * per-layer brightness are scaled against the run's own maximum. Relative
- * structure is preserved; only the absolute magnitude is fitted to the scene.
+ * Every coordinate of a filament is an exact quantity.
+ *
+ * An earlier version displaced filaments sideways by a 3D projection of the
+ * residual vector, which looked like motion but was a shadow of 768 dimensions
+ * and carried almost nothing. Height is now the norm of the residual itself,
+ * scaled against the largest in the pass: the stream visibly swells as it is
+ * written into, which is a real and measurable thing that it does. Depth is the
+ * layer, horizontal is the token's place in the sentence, and brightness is how
+ * much the layer wrote. Nothing here is a projection.
  */
-function traceScale(trace: StepTrace): { wander: number; write: number } {
-  let projMax = 1e-6
+function traceScale(trace: StepTrace): { rise: number; write: number } {
+  let normMax = 1e-6
   let writeMax = 1e-6
   for (const layer of trace.layers) {
-    for (let i = 0; i < layer.proj.length; i++) projMax = Math.max(projMax, Math.abs(layer.proj[i]))
+    for (let i = 0; i < layer.residualNorm.length; i++) normMax = Math.max(normMax, layer.residualNorm[i])
     for (let i = 0; i < layer.writeNorm.length; i++) writeMax = Math.max(writeMax, layer.writeNorm[i])
   }
-  return { wander: WANDER / projMax, write: 1 / writeMax }
+  return { rise: RISE / normMax, write: 1 / writeMax }
 }
 
 /**
@@ -33,15 +38,14 @@ export function streamPoint(
   pos: number,
   nLayers: number,
   out: THREE.Vector3,
-  wander = traceScale(trace).wander,
+  rise = traceScale(trace).rise,
 ): THREE.Vector3 {
   const T = trace.ids.length
-  if (l < 0) return out.set(tokenX(pos, T), 0, layerZ(0, nLayers) - layerGap(nLayers) * 0.9)
-  const p = trace.layers[l].proj
+  if (l < 0) return out.set(tokenX(pos, T), -RISE * 0.55, layerZ(0, nLayers) - layerGap(nLayers) * 0.9)
   return out.set(
-    tokenX(pos, T) + p[pos * 3] * wander,
-    p[pos * 3 + 1] * wander,
-    layerZ(l, nLayers) + p[pos * 3 + 2] * wander * 0.1,
+    tokenX(pos, T),
+    trace.layers[l].residualNorm[pos] * rise - RISE * 0.55,
+    layerZ(l, nLayers),
   )
 }
 
@@ -90,8 +94,8 @@ export class Streams {
     let s = 0
     for (let pos = 0; pos < this.T; pos++) {
       for (let l = -1; l < nLayers - 1; l++) {
-        streamPoint(trace, l, pos, nLayers, a, scale.wander)
-        streamPoint(trace, l + 1, pos, nLayers, b, scale.wander)
+        streamPoint(trace, l, pos, nLayers, a, scale.rise)
+        streamPoint(trace, l + 1, pos, nLayers, b, scale.rise)
         this.positions.set([a.x, a.y, a.z, b.x, b.y, b.z], s * 6)
         s++
       }

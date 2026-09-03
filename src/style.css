@@ -156,6 +156,12 @@ select { width: 100%; padding: 5px 6px; color: var(--text); background: #0d1110;
 .check:hover { color: var(--text); }
 .check input { accent-color: var(--attn); margin: 0; }
 
+table.exactness { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+table.exactness td { padding: 3px 0; vertical-align: top; color: var(--muted); }
+table.exactness td.e { padding-left: 8px; color: var(--text); }
+table.exactness tr + tr td { border-top: 1px solid var(--line); }
+table.exactness tr.weak td, table.exactness tr.weak td.e { color: var(--supp); }
+
 .legend { margin: 0; padding: 0; list-style: none; color: var(--muted); line-height: 1.9; font-size: 11px; }
 .legend .sw { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
 .sw.active { background: var(--active); box-shadow: 0 0 7px var(--active); }

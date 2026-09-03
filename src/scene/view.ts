@@ -2,12 +2,13 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { LM } from '../model/lm'
 import { MAX_CONTEXT, type Run } from '../model/run'
+import type { StepTrace } from '../model/trace'
 import { Arcs } from './arcs'
 import { Labels, type LabelSpec } from './labels'
-import { Lattice, layerZ } from './lattice'
+import { Lattice } from './lattice'
 import { Rings } from './rings'
 import { PALETTE } from './palette'
-import { Streams, streamPoint } from './streams'
+import { Streams } from './streams'
 import { Synapses } from './synapses'
 
 export interface RenderState {
@@ -135,7 +136,7 @@ export class View {
     this.arcs.lines.visible = state.show.attention
     this.plans.visible = state.show.plans
 
-    this.rings.update(state.layerF)
+    this.rings.update(state.layerF, this.layerWork(trace))
     this.synapses.lines.visible = state.show.synapses
     if (state.show.synapses) this.synapses.update(trace, state.layerF, nLayers)
     if (state.show.features) this.lattice.update(trace, state.layerF)
@@ -148,19 +149,34 @@ export class View {
     this.renderer.render(this.scene, this.camera)
   }
 
-  /** Long amber threads: a feature awake now whose direction points at a word the run went on to emit. */
+  /**
+   * How much each layer wrote into the stream at the position being computed,
+   * scaled against the largest write in the pass. Drives ring brightness, so the
+   * corridor shows which layers did the work rather than looking uniform.
+   */
+  private layerWork(trace: StepTrace): Float32Array {
+    const out = new Float32Array(trace.layers.length)
+    let max = 1e-6
+    for (const layer of trace.layers) max = Math.max(max, layer.writeNorm[trace.active] ?? 0)
+    for (let l = 0; l < trace.layers.length; l++) out[l] = (trace.layers[l].writeNorm[trace.active] ?? 0) / max
+    return out
+  }
+
+  /**
+   * Mark tokens this layer is pushing that the run goes on to actually write.
+   *
+   * An earlier version drew a long line from the token to a made-up point above
+   * the stack. The measurement is real but that destination was invented, so the
+   * line is gone: what is drawn now is a short vertical stem on the token's own
+   * point, at the place the token genuinely sits, and the label carries the lead.
+   */
   private buildPlans(step: number): void {
     if (!this.run) return
-    const nLayers = this.model.cfg.nLayer
-    const links = this.run.anticipations.filter((a) => a.step === step)
     const pos: number[] = []
     const v = new THREE.Vector3()
-    const exitZ = layerZ(nLayers - 1, nLayers) + 6
-    for (const a of links) {
-      const trace = this.run.steps[step]
-      streamPoint(trace, a.layer, Math.min(a.pos, trace.ids.length - 1), nLayers, v)
-      const t = (a.targetStep % 5) - 2
-      pos.push(v.x, v.y, v.z, t * 2.6, 7.5, exitZ)
+    for (const a of this.run.anticipations.filter((x) => x.step === step)) {
+      this.featurePoint(a.featureId, a.layer, v)
+      pos.push(v.x, v.y, v.z, v.x, v.y + 1.6, v.z)
     }
     this.plans.geometry.dispose()
     const g = new THREE.BufferGeometry()
@@ -209,14 +225,13 @@ export class View {
     }
 
     if (state.show.plans) {
-      const exitZ = layerZ(nLayers - 1, nLayers) + 6
       for (const a of this.run.anticipations.filter((x) => x.step === state.step)) {
-        const t = (a.targetStep % 5) - 2
+        this.featurePoint(a.featureId, a.layer, v)
         out.push({
           id: `a${a.featureId}-${a.targetStep}`,
-          text: a.targetWord,
-          sub: `+${a.targetStep - a.step}`,
-          world: new THREE.Vector3(t * 2.6, 7.5, exitZ),
+          text: a.targetWord.trim(),
+          sub: `written +${a.targetStep - a.step}`,
+          world: new THREE.Vector3(v.x, v.y + 1.6, v.z),
           kind: 'anticipation',
           opacity: 0.9,
         })
